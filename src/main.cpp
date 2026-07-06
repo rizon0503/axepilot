@@ -62,6 +62,16 @@ CommandRouter router(notifier, optimizer, controller, sysInfo, sysTime, history,
 // BitaxeData is a small POD, so a spinlock-protected copy is enough.
 static portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
 static BitaxeData sharedData = {};
+
+// Snapshot of TelemetryHistory's temp/hashrate samples for the Main
+// screen's sparkline (#2) — same spinlock as sharedData, since both are
+// written together right after controller.update().
+struct SparklineSnapshot {
+    float temps[TelemetryHistory::CAPACITY] = {};
+    float hashrates[TelemetryHistory::CAPACITY] = {};
+    size_t count = 0;
+};
+static SparklineSnapshot sharedSparkline = {};
 static std::atomic<OperationMode> currentMode{OperationMode::AUTOPILOT};
 static std::atomic<bool> throttleRequested{false}; // set by UI touch, consumed by network task
 static std::atomic<bool> wifiConnected{false};
@@ -145,11 +155,20 @@ static void renderDiagnosticsScreen() {
     uiRenderer.renderDiagnosticsScreen(diag);
 }
 
-static BitaxeData readSharedData() {
+// BitaxeData + the sparkline are always read together for the Main screen —
+// one critical section for both, so the UI thread can never observe a
+// tear where the telemetry numbers are from one network-task tick and the
+// sparkline is from an earlier or later one.
+struct MainScreenSnapshot {
+    BitaxeData data;
+    SparklineSnapshot sparkline;
+};
+
+static MainScreenSnapshot readMainScreenSnapshot() {
     portENTER_CRITICAL(&dataMux);
-    BitaxeData copy = sharedData;
+    MainScreenSnapshot snap{sharedData, sharedSparkline};
     portEXIT_CRITICAL(&dataMux);
-    return copy;
+    return snap;
 }
 
 // All HTTP(S) I/O lives here. A DeepSeek call can take tens of seconds —
@@ -199,11 +218,16 @@ static void networkTask(void*) {
 
         controller.update();
         BitaxeData data = controller.getData();
-        portENTER_CRITICAL(&dataMux);
-        sharedData = data;
-        portEXIT_CRITICAL(&dataMux);
         history.record(data, sysTime.millis());
         dailyStats.record(data, sysTime.millis());
+
+        SparklineSnapshot sparkline;
+        sparkline.count = history.copySparklineData(sparkline.temps, sparkline.hashrates, TelemetryHistory::CAPACITY);
+
+        portENTER_CRITICAL(&dataMux);
+        sharedData = data;
+        sharedSparkline = sparkline;
+        portEXIT_CRITICAL(&dataMux);
 
         uint32_t lifetimeInterventionsBefore = rebootStats.interventionTotal();
         rebootStats.tick(sysTime.millis() / 1000, controller.interventions().totalCount());
@@ -363,9 +387,11 @@ void loop() {
     // Only the Main screen shows live telemetry; the Controls screen is static.
     if (currentScreen == Screen::MAIN && (lastUiRefresh == 0 || now - lastUiRefresh >= 500)) {
         lastUiRefresh = now;
-        BitaxeData data = readSharedData();
+        MainScreenSnapshot snap = readMainScreenSnapshot();
         OperationMode mode = currentMode.load();
-        uiRenderer.renderTelemetry(data, mode, wifiConnected.load());
+        uiRenderer.renderTelemetry(snap.data, mode, wifiConnected.load(),
+                                    snap.sparkline.temps, snap.sparkline.count,
+                                    snap.sparkline.hashrates, snap.sparkline.count);
     }
 
     // Emergency Throttle Button & Screen Wakeup

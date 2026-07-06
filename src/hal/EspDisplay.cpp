@@ -78,6 +78,14 @@ void EspDisplay::drawButton(int x, int y, int w, int h, const std::string& label
     tft.drawCentreString(label.c_str(), x + w / 2, y + h / 2 - 10, 4);
 }
 
+void EspDisplay::drawLine(int x0, int y0, int x1, int y1, uint16_t color) {
+    tft.drawLine(x0, y0, x1, y1, color);
+}
+
+void EspDisplay::fillRect(int x, int y, int w, int h, uint16_t color) {
+    tft.fillRect(x, y, w, h, color);
+}
+
 bool EspDisplay::touched(int& x, int& y) {
     bool isTouched = ts.touched();
     if (isTouched) {

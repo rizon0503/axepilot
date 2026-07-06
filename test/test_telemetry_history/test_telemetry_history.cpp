@@ -114,6 +114,65 @@ void test_summary_contains_average_efficiency() {
     TEST_ASSERT_TRUE(summary.find("73.3 GH/W") != std::string::npos);
 }
 
+void test_sparkline_data_is_empty_with_no_samples() {
+    TelemetryHistory history;
+
+    float temps[TelemetryHistory::CAPACITY];
+    float hashrates[TelemetryHistory::CAPACITY];
+    size_t n = history.copySparklineData(temps, hashrates, TelemetryHistory::CAPACITY);
+
+    TEST_ASSERT_EQUAL(0, n);
+}
+
+void test_sparkline_data_is_oldest_first() {
+    TelemetryHistory history;
+    history.record(sample(60.0f, 1000.0f), 0);
+    history.record(sample(65.0f, 1200.0f), 30000);
+    history.record(sample(70.0f, 1400.0f), 60000);
+
+    float temps[TelemetryHistory::CAPACITY];
+    float hashrates[TelemetryHistory::CAPACITY];
+    size_t n = history.copySparklineData(temps, hashrates, TelemetryHistory::CAPACITY);
+
+    TEST_ASSERT_EQUAL(3, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 60.0f, temps[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 65.0f, temps[1]);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 70.0f, temps[2]);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1000.0f, hashrates[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1400.0f, hashrates[2]);
+}
+
+void test_sparkline_data_respects_wraparound() {
+    TelemetryHistory history;
+    for (int i = 0; i < 25; i++) {
+        history.record(sample(50.0f + i, 1000.0f), (uint32_t)i * 30000);
+    }
+
+    float temps[TelemetryHistory::CAPACITY];
+    float hashrates[TelemetryHistory::CAPACITY];
+    size_t n = history.copySparklineData(temps, hashrates, TelemetryHistory::CAPACITY);
+
+    TEST_ASSERT_EQUAL(TelemetryHistory::CAPACITY, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 55.0f, temps[0]);  // oldest surviving (i=5)
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 74.0f, temps[19]); // newest (i=24)
+}
+
+void test_sparkline_data_respects_caller_buffer_limit() {
+    TelemetryHistory history;
+    history.record(sample(60.0f, 1000.0f), 0);
+    history.record(sample(65.0f, 1200.0f), 30000);
+    history.record(sample(70.0f, 1400.0f), 60000);
+
+    float temps[2];
+    float hashrates[2];
+    size_t n = history.copySparklineData(temps, hashrates, 2);
+
+    // Truncates to the buffer size, keeping the most recent samples.
+    TEST_ASSERT_EQUAL(2, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 65.0f, temps[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 70.0f, temps[1]);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_history_rate_limits_recording);
@@ -125,5 +184,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_summary_empty_with_too_few_samples);
     RUN_TEST(test_summary_contains_trend);
     RUN_TEST(test_summary_contains_average_efficiency);
+    RUN_TEST(test_sparkline_data_is_empty_with_no_samples);
+    RUN_TEST(test_sparkline_data_is_oldest_first);
+    RUN_TEST(test_sparkline_data_respects_wraparound);
+    RUN_TEST(test_sparkline_data_respects_caller_buffer_limit);
     return UNITY_END();
 }

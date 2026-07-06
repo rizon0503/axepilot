@@ -3,6 +3,7 @@
 #include "core/BitaxeData.h"
 #include "core/OperationMode.h"
 #include <cstdint>
+#include <cstddef>
 
 // Screen layout, colors, and string formatting for the CYD's three screens
 // (Main, Controls, Diagnostics), extracted from main.cpp so they're
@@ -13,17 +14,26 @@ class UiRenderer {
 public:
     explicit UiRenderer(IDisplay& display);
 
-    // Main screen's live telemetry (temp/hashrate/volt/freq/power/mode),
-    // meant to be called on a ~2x/second cadence by the caller. Only
-    // repaints a line whose text or color actually changed since the last
-    // call, to avoid the full-screen flicker an unconditional redraw would
-    // cause (#41).
-    void renderTelemetry(const BitaxeData& data, OperationMode mode, bool wifiOk);
+    // Max samples renderTelemetry()'s history arguments may contain —
+    // headroom over TelemetryHistory::CAPACITY (20), which is the only
+    // real-world source of this data.
+    static constexpr size_t MAX_SPARKLINE_SAMPLES = 32;
 
-    // Forces the next renderTelemetry() call to repaint every line
-    // regardless of whether it changed — needed after something else
-    // (switching away to another screen and back) clears the physical
-    // display out from under the per-line cache above.
+    // Main screen's live telemetry (temp/hashrate/volt/freq/power/mode) plus
+    // the temperature/hashrate sparklines (#2), meant to be called on a
+    // ~2x/second cadence by the caller. Only repaints a line/sparkline
+    // whose content actually changed since the last call, to avoid the
+    // full-screen flicker an unconditional redraw would cause (#41).
+    // tempHistory/hashHistory are oldest-first, at most
+    // MAX_SPARKLINE_SAMPLES entries (see TelemetryHistory::copySparklineData).
+    void renderTelemetry(const BitaxeData& data, OperationMode mode, bool wifiOk,
+                          const float* tempHistory, size_t tempHistoryCount,
+                          const float* hashHistory, size_t hashHistoryCount);
+
+    // Forces the next renderTelemetry() call to repaint every line and
+    // sparkline regardless of whether it changed — needed after something
+    // else (switching away to another screen and back) clears the physical
+    // display out from under the per-line/sparkline cache above.
     void resetTelemetryCache();
 
     enum class ThrottleState { NORMAL, TRIGGERED };
@@ -72,7 +82,19 @@ private:
         char text[64] = "";
         uint16_t color = 0xFFFF;
     };
-    LineCache tempCache_, hashrateCache_, voltCache_, freqCache_, powCache_, modeCache_;
+    LineCache tempCache_, hashrateCache_, voltFreqCache_, modeCache_, powCache_;
+
+    // Same idea as LineCache, but for the sparklines: only redraw when the
+    // underlying sample values actually changed (TelemetryHistory only gets
+    // a new sample every 30s, far less often than the ~2x/second cadence
+    // renderTelemetry() is called at).
+    float lastTempSpark_[MAX_SPARKLINE_SAMPLES] = {};
+    size_t lastTempSparkCount_ = 0;
+    float lastHashSpark_[MAX_SPARKLINE_SAMPLES] = {};
+    size_t lastHashSparkCount_ = 0;
 
     void drawIfChanged(int x, int y, const char* text, uint16_t color, LineCache& cache);
+    void renderSparklines(const float* tempHistory, size_t tempHistoryCount,
+                          const float* hashHistory, size_t hashHistoryCount);
+    void drawSparklineLine(int x, int y, int w, int h, const float* values, size_t count, uint16_t color);
 };

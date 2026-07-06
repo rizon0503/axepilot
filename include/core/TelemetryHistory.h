@@ -24,6 +24,12 @@ public:
     // Compact English one-liner for AI prompts; empty string when < 2 samples.
     void summarize(char* buf, size_t bufLen) const;
 
+    // Copies up to min(maxCount, size()) samples, oldest-first, into the
+    // caller's buffers — for the main-screen sparkline (#2), which needs
+    // the individual values rather than an aggregate. Returns how many
+    // were copied.
+    size_t copySparklineData(float* outTemps, float* outHashrates, size_t maxCount) const;
+
 private:
     struct Sample {
         uint32_t timeMs;

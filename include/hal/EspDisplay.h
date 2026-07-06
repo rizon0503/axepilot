@@ -11,6 +11,8 @@ public:
     void clear() override;
     void drawText(int x, int y, const std::string& text, uint16_t color) override;
     void drawButton(int x, int y, int w, int h, const std::string& label, uint16_t color) override;
+    void drawLine(int x0, int y0, int x1, int y1, uint16_t color) override;
+    void fillRect(int x, int y, int w, int h, uint16_t color) override;
     bool touched(int& x, int& y) override;
     void setBacklight(bool on) override;
 
