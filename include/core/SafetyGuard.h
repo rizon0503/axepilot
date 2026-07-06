@@ -18,4 +18,10 @@ public:
 private:
     BitaxeController& miner;
     bool throttled;
+    // Tracks whether each sensor has EVER reported a valid (>0) value, so a
+    // momentary glitch on a normally-working sensor (freeze the latch, same
+    // as before this class knew about vrTemp) can be told apart from a
+    // sensor this hardware simply doesn't have (never blocks re-arming).
+    bool chipEverValid = false;
+    bool vrEverValid = false;
 };

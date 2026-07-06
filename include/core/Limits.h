@@ -9,6 +9,11 @@ namespace Limits {
     constexpr float TEMP_PANIC = 72.0f; // Local emergency throttle, no cloud involved
     constexpr float TEMP_COLD  = 60.0f; // Underperforming: allow speed up, reset alert latch
 
+    // Voltage-regulator panic threshold — a second thermal sensor
+    // independent of the main chip. Typical VR panic point is ~85-90C;
+    // picked the conservative end of that range.
+    constexpr float VR_TEMP_PANIC = 85.0f;
+
     constexpr int FREQ_MIN = 400;  // MHz
     constexpr int FREQ_MAX = 625;  // MHz
     constexpr int VOLT_MIN = 1000; // mV
