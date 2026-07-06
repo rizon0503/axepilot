@@ -110,7 +110,7 @@ static void networkTask(void*) {
         dailyStats.record(data, sysTime.millis());
         rebootStats.tick(sysTime.millis() / 1000, controller.interventions().totalCount());
 
-        std::string digest = dailyStats.tick(sysTime.millis(), controller.interventions().totalCount());
+        std::string digest = dailyStats.tick(sysTime.millis(), sysTime.epochSeconds(), controller.interventions().totalCount());
         if (!digest.empty()) {
             notifier.sendMessage(digest);
         }
@@ -203,10 +203,14 @@ void setup() {
     // Draw Throttle Button (Bottom Bar)
     display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
 
-    // Set up Telegram Bot Menu — pointless without connectivity; the network
-    // task doesn't repeat this call, but the bot menu isn't safety-critical.
+    // Set up Telegram Bot Menu and start NTP sync — both pointless without
+    // connectivity; if WiFi isn't up yet, epochSeconds() just keeps
+    // returning 0 (see ISystemTime) and every caller already falls back to
+    // uptime-relative behavior. configTime() doesn't block or repeat here:
+    // once the SNTP client has WiFi, it syncs and keeps itself updated.
     if (WiFi.status() == WL_CONNECTED) {
         notifier.setupCommands();
+        configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // UTC, no DST offset
     }
     lastInteractionTime = sysTime.millis();
 

@@ -52,7 +52,7 @@ BitaxeData BitaxeController::getData() const {
 }
 
 void BitaxeController::applySettings(int frequency, int coreVoltage, const char* source) {
-    interventionLog.add(sysTime.millis(), source, frequency, coreVoltage);
+    interventionLog.add(sysTime.millis(), sysTime.epochSeconds(), source, frequency, coreVoltage);
 
     JsonDocument cmd;
     cmd["frequency"] = frequency;
