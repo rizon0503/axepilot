@@ -67,6 +67,10 @@ static std::atomic<bool> presetRequested{false};
 static std::atomic<int> presetFrequency{0};
 static std::atomic<int> presetCoreVoltage{0};
 static std::atomic<bool> restartRequested{false};
+// Applied on the network task, not written directly from the UI thread —
+// the Telegram command handler below does a non-atomic load-mutate-store of
+// currentMode, so a concurrent direct write from loop() could be clobbered.
+static std::atomic<bool> modeToggleRequested{false};
 
 enum class Screen { MAIN, CONTROLS };
 
@@ -245,6 +249,11 @@ static void networkTask(void*) {
         if (restartRequested.exchange(false)) {
             controller.restartMiner();
             notifier.sendMessage("♻️ Miner restart requested via screen. Hashrate will recover in ~1-2 min.");
+        }
+
+        // AUTO/MANUAL toggle tapped on the Controls screen
+        if (modeToggleRequested.exchange(false)) {
+            currentMode = currentMode.load() == OperationMode::AUTOPILOT ? OperationMode::MANUAL : OperationMode::AUTOPILOT;
         }
 
         // DeepSeek AI Autopilot (paused while a benchmark owns the settings)
@@ -436,8 +445,8 @@ void loop() {
                 OperationMode next = currentMode.load() == OperationMode::AUTOPILOT
                                           ? OperationMode::MANUAL
                                           : OperationMode::AUTOPILOT;
-                currentMode = next; // atomic; persisted by the network task
-                renderControlsScreen(next);
+                modeToggleRequested = true; // applied on the network task; see the comment by its declaration
+                renderControlsScreen(next); // optimistic — matches what the network task applies next tick
                 break;
             }
             case Action::RESTART:
