@@ -68,6 +68,7 @@ It monitors the Bitaxe via its local HTTP API, provides a touchscreen UI, integr
 5.  **PlatformIO Environment**
     *   Environment: `esp32-cyd` (firmware) and `native` (host unit tests, `pio test -e native`).
     *   Libraries: `bodmer/TFT_eSPI`, `bblanchon/ArduinoJson`, `paulstoffregen/XPT2046_Touchscreen`.
+    *   `pio` is not on the global PATH in this environment — it lives in the project's local `.venv`. Invoke it as `./.venv/Scripts/pio.exe` (Windows) rather than a bare `pio`, or the command will fail with "command not found".
 
 6.  **Secrets**
     *   Credentials (WiFi, Telegram token, DeepSeek key, Bitaxe IP) live in `include/secrets.h`, which is gitignored. Copy `include/secrets.h.example` to get started. Never hardcode credentials in `main.cpp`.
@@ -91,13 +92,13 @@ Once an issue is chosen, follow this sequence for it — every step is mandatory
 
 1. **Branch**: `git checkout -b feature/<issue-number>-<slug>` from `master`.
 2. **TDD, always**: write a failing test first (confirm it's actually red — compile error or failing assertion), then implement until green. A PR for a functional change with no new/updated test is not acceptable.
-3. **Run both suites**: `pio test -e native` (all green) and `pio run -e esp32-cyd` (record the resulting Flash/RAM % so headroom can be tracked over time — don't assume last session's numbers still apply).
+3. **Run both suites**: `./.venv/Scripts/pio.exe test -e native` (all green) and `./.venv/Scripts/pio.exe run -e esp32-cyd` (record the resulting Flash/RAM % so headroom can be tracked over time — don't assume last session's numbers still apply). Use the local `.venv`'s `pio`, not a bare `pio` — see the PlatformIO Environment note above.
 4. **Self-review — mandatory, before merge, regardless of CI status**: `git diff master...branch`, look for real bugs (not cosmetics), and report findings via the `ReportFindings` tool. CI passing is not a substitute for this step — CI does not catch logic bugs. If something is found, fix it in a new commit and document it in a PR comment, then re-review.
 5. **Commit, push, open a PR** (`gh pr create`) with a description covering What / Why / How / Test results (native suite X/X, esp32-cyd build result + Flash/RAM %). No `Co-Authored-By` trailer — commits use the repo's configured git identity only.
 6. **Wait for CI**: `gh pr checks <N>` — build-and-test (native + esp32-cyd) and gitleaks must all be green.
 7. **Merge only after both green CI and the step-4 self-review are done**: `gh pr merge <N> --squash --delete-branch`.
 8. `git checkout master && git pull`; delete any leftover local branch.
-9. **Flash only after merge, never before**: `pio run -e esp32-cyd -t upload --upload-port COM4`.
+9. **Flash only after merge, never before**: `./.venv/Scripts/pio.exe run -e esp32-cyd -t upload --upload-port COM4`.
 10. For UI-facing changes, ask the user to confirm behavior/appearance on the physical device before closing the issue — this can't be verified from code alone.
 11. **Close the issue** on GitHub with a comment summarizing what was done and linking the PR.
 
