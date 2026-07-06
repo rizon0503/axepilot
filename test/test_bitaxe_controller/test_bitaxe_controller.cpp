@@ -76,6 +76,31 @@ void test_controller_parses_extended_telemetry() {
     TEST_ASSERT_EQUAL(86400, data.uptimeSeconds);
 }
 
+void test_controller_parses_vr_temp() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
+
+    mockHttp.getResponse = "{\"temp\": 60.0, \"hashRate\": 1000, \"coreVoltage\": 1100, \"frequency\": 500, \"vrTemp\": 78.5}";
+    mockTime.currentTime = 5000;
+    controller.update();
+
+    TEST_ASSERT_EQUAL_FLOAT(78.5f, controller.getData().vrTemp);
+}
+
+void test_controller_defaults_vr_temp_when_absent() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
+
+    // Older AxeOS firmware / boards without a VR sensor simply omit the field
+    mockHttp.getResponse = "{\"temp\": 60.0, \"hashRate\": 1000, \"coreVoltage\": 1100, \"frequency\": 500}";
+    mockTime.currentTime = 5000;
+    controller.update();
+
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, controller.getData().vrTemp);
+}
+
 void test_controller_ignores_oversized_response() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -116,6 +141,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_controller_flags_overheating);
     RUN_TEST(test_controller_treats_zero_temp_as_invalid_reading);
     RUN_TEST(test_controller_parses_extended_telemetry);
+    RUN_TEST(test_controller_parses_vr_temp);
+    RUN_TEST(test_controller_defaults_vr_temp_when_absent);
     RUN_TEST(test_controller_ignores_oversized_response);
     RUN_TEST(test_controller_rate_limits_polling);
     return UNITY_END();

@@ -11,6 +11,7 @@ struct BitaxeData {
     int coreVoltage = 0;        // mV
     int frequency = 0;          // MHz
     float power = 0.0f;         // W
+    float vrTemp = 0.0f;        // °C, voltage-regulator temp; 0.0 = unsupported/invalid
     int fanSpeedPercent = 0;
     int fanRpm = 0;
     uint32_t sharesAccepted = 0;

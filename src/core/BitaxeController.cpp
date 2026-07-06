@@ -26,6 +26,7 @@ void BitaxeController::update() {
                 currentData.coreVoltage = doc["coreVoltage"] | 0;
                 currentData.frequency = doc["frequency"] | 0;
                 currentData.power = doc["power"] | 0.0f;
+                currentData.vrTemp = doc["vrTemp"] | 0.0f;
                 currentData.fanSpeedPercent = doc["fanspeed"] | 0;
                 currentData.fanRpm = doc["fanrpm"] | 0;
                 currentData.sharesAccepted = doc["sharesAccepted"] | 0;

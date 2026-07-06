@@ -5,18 +5,23 @@
 SafetyGuard::SafetyGuard(BitaxeController& miner) : miner(miner), throttled(false) {}
 
 std::string SafetyGuard::check(const BitaxeData& data) {
-    if (data.temperature <= 0.0f) {
-        return ""; // Invalid sensor reading — never act on it
-    }
+    bool chipReading = data.temperature > 0.0f;
+    bool vrReading = data.vrTemp > 0.0f;
 
     if (throttled) {
-        if (data.temperature < Limits::TEMP_MAX) {
-            throttled = false; // Cooled down — re-arm for the next incident
+        // Only re-arm once every sensor that is actually reporting confirms
+        // it has cooled. A sensor that isn't reporting (unsupported
+        // firmware, or this device has no VR sensor at all) never blocks
+        // re-arming on its own.
+        bool chipCooled = !chipReading || data.temperature < Limits::TEMP_MAX;
+        bool vrCooled = !vrReading || data.vrTemp < Limits::VR_TEMP_PANIC;
+        if (chipCooled && vrCooled) {
+            throttled = false;
         }
         return "";
     }
 
-    if (data.temperature >= Limits::TEMP_PANIC) {
+    if (chipReading && data.temperature >= Limits::TEMP_PANIC) {
         miner.applySettings(Limits::FREQ_MIN, Limits::VOLT_MIN, "SafetyGuard");
         throttled = true;
 
@@ -24,6 +29,17 @@ std::string SafetyGuard::check(const BitaxeData& data) {
         snprintf(msg, sizeof(msg),
                  "🔥 PANIC %.1f°C >= %.1f°C!\nLocal protection (no AI) reset settings to %d MHz / %d mV.",
                  data.temperature, Limits::TEMP_PANIC, Limits::FREQ_MIN, Limits::VOLT_MIN);
+        return std::string(msg);
+    }
+
+    if (vrReading && data.vrTemp >= Limits::VR_TEMP_PANIC) {
+        miner.applySettings(Limits::FREQ_MIN, Limits::VOLT_MIN, "SafetyGuard");
+        throttled = true;
+
+        char msg[224];
+        snprintf(msg, sizeof(msg),
+                 "🔥 VR PANIC %.1f°C >= %.1f°C!\nLocal protection (no AI) reset settings to %d MHz / %d mV.",
+                 data.vrTemp, Limits::VR_TEMP_PANIC, Limits::FREQ_MIN, Limits::VOLT_MIN);
         return std::string(msg);
     }
 

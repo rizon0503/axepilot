@@ -27,6 +27,11 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
             len += snprintf(status + len, sizeof(status) - len, " (trend %+.2f°C/min)", history.tempTrendPerMinute());
         }
 
+        // Not every board/firmware reports a VR sensor reading
+        if (data.vrTemp > 0.0f && len > 0 && (size_t)len < sizeof(status)) {
+            len += snprintf(status + len, sizeof(status) - len, "\n🔥 VR Temp: %.1f°C", data.vrTemp);
+        }
+
         if (len > 0 && (size_t)len < sizeof(status)) {
             char efficiency[48] = "";
             if (data.power > 0.1f) {
