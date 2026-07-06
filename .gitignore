@@ -1,0 +1,26 @@
+# PlatformIO
+.pio
+.pio/
+.pioenvs
+.piolibdeps
+*.bin
+*.elf
+*.hex
+
+# Python Virtual Environment
+.venv/
+venv/
+ENV/
+
+# VSCode
+.vscode/
+
+# Secrets (copy include/secrets.h.example -> include/secrets.h)
+include/secrets.h
+
+# Node.js (MCP server)
+node_modules/
+
+# OS specific
+.DS_Store
+Thumbs.db
