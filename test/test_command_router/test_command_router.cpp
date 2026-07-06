@@ -5,6 +5,7 @@
 #include "../mocks/MockHttpClient.h"
 #include "../mocks/MockSystemTime.h"
 #include "../mocks/MockSystemInfo.h"
+#include "../mocks/MockSettingsStore.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -23,11 +24,13 @@ struct Fixture {
     MockHttpClient http;
     MockSystemTime time;
     MockSystemInfo info;
+    MockSettingsStore settingsStore;
     BitaxeController miner;
     TelegramNotifier notifier;
     DeepSeekOptimizer optimizer;
     TelemetryHistory history;
     BenchmarkRunner benchmark;
+    RebootStats rebootStats;
     CommandRouter router;
     BitaxeData data{};
 
@@ -36,7 +39,9 @@ struct Fixture {
           notifier(http, "dummy_token", "12345"),
           optimizer(http, time, "dummy_key", miner),
           benchmark(miner),
-          router(notifier, optimizer, miner, info, time, history, benchmark) {
+          rebootStats(settingsStore),
+          router(notifier, optimizer, miner, info, time, history, benchmark, rebootStats) {
+        rebootStats.begin();
         data.temperature = 62.5f;
         data.hashrate = 1150.0f;
         data.frequency = 550;
@@ -110,8 +115,39 @@ void test_esp_reports_system_info() {
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("-61") != std::string::npos);
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("01:00:00") != std::string::npos);
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("BROWNOUT") != std::string::npos);
+    // Reboot-surviving counters: fresh fixture -> this is reset #1, no
+    // uptime record yet, no interventions yet
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("resets so far: 1") != std::string::npos);
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("record: 00:00:00") != std::string::npos);
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("interventions (lifetime): 0") != std::string::npos);
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("64 KB") != std::string::npos);
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("2") != std::string::npos);
+}
+
+void test_esp_reports_preloaded_reboot_stats() {
+    MockHttpClient http;
+    MockSystemTime time;
+    MockSystemInfo info;
+    MockSettingsStore settingsStore;
+    settingsStore.storedResetCount = 9; // this boot will become #10
+    settingsStore.storedUptimeRecord = 7325; // 02:02:05
+    settingsStore.storedInterventionTotal = 42;
+    BitaxeController miner(http, time, "192.168.0.128");
+    TelegramNotifier notifier(http, "dummy_token", "12345");
+    DeepSeekOptimizer optimizer(http, time, "dummy_key", miner);
+    TelemetryHistory history;
+    BenchmarkRunner benchmark(miner);
+    RebootStats rebootStats(settingsStore);
+    rebootStats.begin();
+    CommandRouter router(notifier, optimizer, miner, info, time, history, benchmark, rebootStats);
+    BitaxeData data{};
+    OperationMode mode = OperationMode::MANUAL;
+
+    router.handle("/esp", data, mode);
+
+    TEST_ASSERT_TRUE(http.lastPostPayload.find("resets so far: 10") != std::string::npos);
+    TEST_ASSERT_TRUE(http.lastPostPayload.find("record: 02:02:05") != std::string::npos);
+    TEST_ASSERT_TRUE(http.lastPostPayload.find("interventions (lifetime): 42") != std::string::npos);
 }
 
 void test_set_applies_valid_settings_and_forces_manual() {
@@ -253,6 +289,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_status_reports_telemetry);
     RUN_TEST(test_status_shows_auto_fan_with_rpm_when_percent_is_zero);
     RUN_TEST(test_esp_reports_system_info);
+    RUN_TEST(test_esp_reports_preloaded_reboot_stats);
     RUN_TEST(test_set_applies_valid_settings_and_forces_manual);
     RUN_TEST(test_set_rejects_out_of_range_settings);
     RUN_TEST(test_set_rejects_malformed_input);
