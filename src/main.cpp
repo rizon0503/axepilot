@@ -165,6 +165,12 @@ static void networkTask(void*) {
     }
 }
 
+// If WiFi is unavailable at boot, don't hang here forever — the network
+// task (started below regardless) retries the connection continuously.
+// Blocking setup() indefinitely would also leave the emergency throttle
+// button undrawn and unresponsive.
+constexpr uint32_t WIFI_SETUP_TIMEOUT_MS = 30000;
+
 void setup() {
     Serial.begin(115200);
     esp_task_wdt_init(180, true); // panic + reboot if the network task hangs
@@ -173,22 +179,31 @@ void setup() {
     display.drawText(10, 10, "Connecting to WiFi...", TFT_WHITE);
 
     WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
+    uint32_t wifiWaitStart = sysTime.millis();
+    while (WiFi.status() != WL_CONNECTED && sysTime.millis() - wifiWaitStart < WIFI_SETUP_TIMEOUT_MS) {
         sysTime.delay(500);
         Serial.print(".");
     }
-    wifiConnected = true;
 
     display.clear();
-    display.drawText(10, 10, "WiFi Connected!", TFT_GREEN);
+    if (WiFi.status() == WL_CONNECTED) {
+        wifiConnected = true;
+        display.drawText(10, 10, "WiFi Connected!", TFT_GREEN);
+    } else {
+        display.drawText(10, 10, "WiFi not found.", TFT_RED);
+        display.drawText(10, 40, "Retrying in background...", TFT_WHITE);
+    }
     sysTime.delay(1000);
     display.clear();
 
     // Draw Throttle Button (Bottom Bar)
     display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
 
-    // Set up Telegram Bot Menu
-    notifier.setupCommands();
+    // Set up Telegram Bot Menu — pointless without connectivity; the network
+    // task doesn't repeat this call, but the bot menu isn't safety-critical.
+    if (WiFi.status() == WL_CONNECTED) {
+        notifier.setupCommands();
+    }
     lastInteractionTime = sysTime.millis();
 
     // Networking on core 0 (where the WiFi stack already lives); the Arduino
