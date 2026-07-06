@@ -409,7 +409,16 @@ void loop() {
     bool touchStarted = touched && !touchWasDown;
     touchWasDown = touched;
 
-    if (touched && isScreenOn && currentScreen == Screen::MAIN) {
+    // Snapshot the screen before dispatch: both screens' tab button shares
+    // the same TAB_RECT, so a tap that switches Main -> Controls below would
+    // otherwise also satisfy the Controls-dispatch block's currentScreen ==
+    // CONTROLS check later in this same iteration (same touchStarted tap,
+    // now on the just-switched-to screen) and immediately switch back,
+    // leaving a half-drawn Controls screen that the next Main redraw then
+    // painted telemetry text over.
+    const Screen screenAtTouch = currentScreen;
+
+    if (touched && isScreenOn && screenAtTouch == Screen::MAIN) {
         if (throttleRestoreAt == 0 && TouchMapper::isWithinRect(tx, ty, 0, 180, 320, 60)) {
             // The actual PATCH + Telegram message happen on the network task.
             throttleRequested = true;
@@ -432,7 +441,7 @@ void loop() {
         throttleRestoreAt = 0;
     }
 
-    if (touched && isScreenOn && currentScreen == Screen::CONTROLS && touchStarted) {
+    if (touched && isScreenOn && screenAtTouch == Screen::CONTROLS && touchStarted) {
         using ControlsScreen::Action;
         Action action = ControlsScreen::hitTest(tx, ty);
         switch (action) {
