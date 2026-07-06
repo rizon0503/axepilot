@@ -99,6 +99,14 @@ static void networkTask(void*) {
                 continue; // Skip API calls until reconnected
             }
         }
+        // Start (or restart) NTP sync exactly once per "became connected"
+        // transition — covers the initial connect, a connect that happens
+        // after setup()'s WiFi wait already timed out, and any later
+        // reconnect after a drop. Cheap enough to not need throttling
+        // beyond that.
+        if (!wifiConnected.load()) {
+            configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // UTC, no DST offset
+        }
         wifiConnected = true;
 
         controller.update();
@@ -203,14 +211,12 @@ void setup() {
     // Draw Throttle Button (Bottom Bar)
     display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
 
-    // Set up Telegram Bot Menu and start NTP sync — both pointless without
-    // connectivity; if WiFi isn't up yet, epochSeconds() just keeps
-    // returning 0 (see ISystemTime) and every caller already falls back to
-    // uptime-relative behavior. configTime() doesn't block or repeat here:
-    // once the SNTP client has WiFi, it syncs and keeps itself updated.
+    // Set up Telegram Bot Menu — pointless without connectivity; the network
+    // task doesn't repeat this call, but the bot menu isn't safety-critical.
+    // NTP sync is started from the network task instead (see networkTask()),
+    // so it isn't missed if WiFi connects only after this timeout window.
     if (WiFi.status() == WL_CONNECTED) {
         notifier.setupCommands();
-        configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // UTC, no DST offset
     }
     lastInteractionTime = sysTime.millis();
 
