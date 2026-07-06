@@ -130,6 +130,31 @@ void test_guard_stays_latched_while_vr_still_hot_after_chip_cools() {
     TEST_ASSERT_TRUE(alert.length() > 0);
 }
 
+void test_guard_freezes_latch_on_chip_glitch_instead_of_rearming() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    SafetyGuard guard(miner);
+
+    // Chip has reported validly before, so it's known to be a real sensor
+    guard.check(dataAt(60.0f));
+    // ...then panics
+    guard.check(dataAt(Limits::TEMP_PANIC + 1.0f));
+    TEST_ASSERT_EQUAL(1, mockHttp.patchCount);
+
+    // A single glitchy 0.0 reading must NOT be mistaken for "cooled down" —
+    // freeze the latch instead of guessing (vrTemp was never reported in
+    // this test, so it alone would otherwise satisfy the re-arm condition)
+    guard.check(dataAt(0.0f));
+    TEST_ASSERT_EQUAL(1, mockHttp.patchCount); // still latched, no re-arm
+
+    // A genuinely cool reading re-arms normally
+    guard.check(dataAt(Limits::TEMP_MAX - 2.0f));
+    std::string alert = guard.check(dataAt(Limits::TEMP_PANIC + 1.0f));
+    TEST_ASSERT_EQUAL(2, mockHttp.patchCount);
+    TEST_ASSERT_TRUE(alert.length() > 0);
+}
+
 void test_guard_latches_and_rearms_after_cooldown() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -160,6 +185,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_guard_idle_below_vr_panic_temp);
     RUN_TEST(test_guard_ignores_invalid_vr_reading);
     RUN_TEST(test_guard_stays_latched_while_vr_still_hot_after_chip_cools);
+    RUN_TEST(test_guard_freezes_latch_on_chip_glitch_instead_of_rearming);
     RUN_TEST(test_guard_latches_and_rearms_after_cooldown);
     return UNITY_END();
 }

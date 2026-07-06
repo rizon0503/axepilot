@@ -7,14 +7,17 @@ SafetyGuard::SafetyGuard(BitaxeController& miner) : miner(miner), throttled(fals
 std::string SafetyGuard::check(const BitaxeData& data) {
     bool chipReading = data.temperature > 0.0f;
     bool vrReading = data.vrTemp > 0.0f;
+    if (chipReading) chipEverValid = true;
+    if (vrReading) vrEverValid = true;
 
     if (throttled) {
-        // Only re-arm once every sensor that is actually reporting confirms
-        // it has cooled. A sensor that isn't reporting (unsupported
-        // firmware, or this device has no VR sensor at all) never blocks
-        // re-arming on its own.
-        bool chipCooled = !chipReading || data.temperature < Limits::TEMP_MAX;
-        bool vrCooled = !vrReading || data.vrTemp < Limits::VR_TEMP_PANIC;
+        // A sensor that has never once reported a valid value (this
+        // hardware doesn't have it) never blocks re-arming. A sensor that
+        // DOES normally report but glitches to an invalid reading this one
+        // cycle must NOT be treated as cooled — freeze the latch instead of
+        // guessing, same conservatism the chip-only check always had.
+        bool chipCooled = chipReading ? (data.temperature < Limits::TEMP_MAX) : !chipEverValid;
+        bool vrCooled = vrReading ? (data.vrTemp < Limits::VR_TEMP_PANIC) : !vrEverValid;
         if (chipCooled && vrCooled) {
             throttled = false;
         }
