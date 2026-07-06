@@ -315,6 +315,51 @@ void test_ask_question_request_structure_includes_replayed_history() {
     TEST_ASSERT_TRUE(std::string(messages[3]["content"].as<const char*>()).find("now 25 more") != std::string::npos);
 }
 
+void test_optimizer_states_efficiency_goal_and_current_efficiency() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    BitaxeData data = overheatingData();
+    data.power = 15.0f; // 1200 GH/s / 15W = 80.0 GH/W
+
+    mockHttp.postResponse = deepseekReply("{\"frequency\":490,\"coreVoltage\":1100,\"reason\":\"ok\"}");
+    mockTime.currentTime = 60000;
+
+    optimizer.optimize(data, g_emptyHistory);
+
+    JsonDocument doc;
+    deserializeJson(doc, mockHttp.lastPostPayload);
+    std::string sysContent = doc["messages"][0]["content"].as<const char*>();
+    std::string userContent = doc["messages"][1]["content"].as<const char*>();
+
+    TEST_ASSERT_TRUE(sysContent.find("maximize efficiency (GH/W)") != std::string::npos);
+    TEST_ASSERT_TRUE(sysContent.find("thermal envelope") != std::string::npos);
+    TEST_ASSERT_TRUE(userContent.find("Efficiency=80.0GH/W") != std::string::npos);
+}
+
+void test_optimizer_includes_history_averaged_efficiency_in_prompt() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    TelemetryHistory history;
+    BitaxeData s1{}; s1.temperature = 68.0f; s1.hashrate = 1000.0f; s1.power = 14.0f;
+    BitaxeData s2{}; s2.temperature = 72.0f; s2.hashrate = 1200.0f; s2.power = 16.0f;
+    history.record(s1, 0);
+    history.record(s2, 120000);
+    // avg hashrate 1100, avg power 15 -> 73.3 GH/W
+
+    mockHttp.postResponse = deepseekReply("{\"frequency\":490,\"coreVoltage\":1100,\"reason\":\"ok\"}");
+    mockTime.currentTime = 200000;
+
+    optimizer.optimize(overheatingData(), history);
+
+    TEST_ASSERT_TRUE(mockHttp.lastPostPayload.find("avg efficiency 73.3 GH/W") != std::string::npos);
+}
+
 void test_optimizer_uses_custom_endpoint_and_model() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -361,6 +406,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_optimize_request_has_well_formed_structure);
     RUN_TEST(test_ask_question_request_has_well_formed_structure);
     RUN_TEST(test_ask_question_request_structure_includes_replayed_history);
+    RUN_TEST(test_optimizer_states_efficiency_goal_and_current_efficiency);
+    RUN_TEST(test_optimizer_includes_history_averaged_efficiency_in_prompt);
     RUN_TEST(test_optimizer_uses_custom_endpoint_and_model);
     RUN_TEST(test_ask_question_reports_mode_change_structurally);
     return UNITY_END();

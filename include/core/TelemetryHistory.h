@@ -19,6 +19,7 @@ public:
     float tempTrendPerMinute() const; // °C per minute over the whole window
     float avgTemperature() const;
     float avgHashrate() const;
+    float avgPower() const;
 
     // Compact English one-liner for AI prompts; empty string when < 2 samples.
     void summarize(char* buf, size_t bufLen) const;
@@ -28,6 +29,7 @@ private:
         uint32_t timeMs;
         float temperature;
         float hashrate;
+        float power;
     };
 
     Sample samples[CAPACITY] = {};

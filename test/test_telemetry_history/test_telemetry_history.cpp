@@ -6,10 +6,11 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-static BitaxeData sample(float temp, float hash) {
+static BitaxeData sample(float temp, float hash, float power = 0.0f) {
     BitaxeData data{};
     data.temperature = temp;
     data.hashrate = hash;
+    data.power = power;
     return data;
 }
 
@@ -54,6 +55,15 @@ void test_history_computes_averages() {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 1100.0f, history.avgHashrate());
 }
 
+void test_history_computes_average_power() {
+    TelemetryHistory history;
+
+    history.record(sample(60.0f, 1000.0f, 14.0f), 0);
+    history.record(sample(62.0f, 1200.0f, 16.0f), 30000);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 15.0f, history.avgPower());
+}
+
 void test_history_wraps_at_capacity() {
     TelemetryHistory history;
 
@@ -91,14 +101,29 @@ void test_summary_contains_trend() {
     TEST_ASSERT_TRUE(summary.find("2 samples") != std::string::npos);
 }
 
+void test_summary_contains_average_efficiency() {
+    TelemetryHistory history;
+    history.record(sample(60.0f, 1000.0f, 14.0f), 0);
+    history.record(sample(62.0f, 1200.0f, 16.0f), 120000);
+    // avg hashrate 1100, avg power 15 -> 73.3 GH/W
+
+    char buf[256];
+    history.summarize(buf, sizeof(buf));
+
+    std::string summary(buf);
+    TEST_ASSERT_TRUE(summary.find("73.3 GH/W") != std::string::npos);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_history_rate_limits_recording);
     RUN_TEST(test_history_ignores_invalid_temperature);
     RUN_TEST(test_history_computes_rising_trend);
     RUN_TEST(test_history_computes_averages);
+    RUN_TEST(test_history_computes_average_power);
     RUN_TEST(test_history_wraps_at_capacity);
     RUN_TEST(test_summary_empty_with_too_few_samples);
     RUN_TEST(test_summary_contains_trend);
+    RUN_TEST(test_summary_contains_average_efficiency);
     return UNITY_END();
 }

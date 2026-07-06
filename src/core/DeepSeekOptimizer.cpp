@@ -28,17 +28,18 @@ std::string DeepSeekOptimizer::optimize(const BitaxeData& data, const TelemetryH
         sysMsg["role"] = "system";
 
         if (data.isOverheating) {
-            sysMsg["content"] = "You are an AI for Bitaxe Gamma. Strict max temp is 70C. Output ONLY a valid JSON object with keys 'frequency' (int), 'coreVoltage' (int), and 'reason' (string in English explaining the logic). Provide safer (lower) settings. Allowed Freqs: 400,490,525,550,600,625. Allowed Volts: 1000,1060,1100,1150,1200,1250.";
+            sysMsg["content"] = "You are an AI for Bitaxe Gamma. Goal: maximize efficiency (GH/W) while staying within the thermal envelope (strict max 70C). The device is currently overheating. Output ONLY a valid JSON object with keys 'frequency' (int), 'coreVoltage' (int), and 'reason' (string in English explaining the logic). Provide safer (lower) settings that bring the temperature down while preserving as much efficiency as reasonably possible. Allowed Freqs: 400,490,525,550,600,625. Allowed Volts: 1000,1060,1100,1150,1200,1250.";
         } else {
-            sysMsg["content"] = "You are an AI for Bitaxe Gamma. The device is too cold and underperforming. Output ONLY a valid JSON object with keys 'frequency' (int), 'coreVoltage' (int), and 'reason' (string in English explaining the logic). Provide slightly HIGHER settings to maximize hashrate up to 550MHz. Allowed Freqs: 400,490,525,550,600,625. Allowed Volts: 1000,1060,1100,1150,1200,1250.";
+            sysMsg["content"] = "You are an AI for Bitaxe Gamma. Goal: maximize efficiency (GH/W) while staying within the thermal envelope (strict max 70C). The device is too cold and underperforming. Output ONLY a valid JSON object with keys 'frequency' (int), 'coreVoltage' (int), and 'reason' (string in English explaining the logic). Provide slightly HIGHER settings to raise hashrate/efficiency up to 550MHz. Allowed Freqs: 400,490,525,550,600,625. Allowed Volts: 1000,1060,1100,1150,1200,1250.";
         }
 
         JsonObject userMsg = messages.add<JsonObject>();
         userMsg["role"] = "user";
 
-        char telemetry[352];
-        int written = snprintf(telemetry, sizeof(telemetry), "Current: Temp=%.1f, Freq=%d, Volt=%d, Power=%.1fW. %s",
-                 data.temperature, data.frequency, data.coreVoltage, data.power,
+        float currentEff = (data.power > 0.1f) ? (data.hashrate / data.power) : 0.0f;
+        char telemetry[400];
+        int written = snprintf(telemetry, sizeof(telemetry), "Current: Temp=%.1f, Freq=%d, Volt=%d, Power=%.1fW, Efficiency=%.1fGH/W. %s",
+                 data.temperature, data.frequency, data.coreVoltage, data.power, currentEff,
                  data.isOverheating ? "It is overheating! Lower the settings." : "It is too cold. Increase settings by one step.");
         // Let the AI see the direction of change, not just one snapshot
         if (written > 0 && (size_t)written < sizeof(telemetry)) {
