@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <esp_task_wdt.h>
 #include <atomic>
+#include <cstring>
 #include "secrets.h"
 
 // Any OpenAI-compatible endpoint can be set in secrets.h; DeepSeek by default
@@ -65,6 +66,23 @@ bool isScreenOn = true;
 uint32_t lastUiRefresh = 0;
 uint32_t throttleRestoreAt = 0;  // 0 = button in normal state
 uint32_t ignoreTouchUntil = 0;   // debounce window after waking the screen
+
+// drawText() always fillRect()s the row before drawing (see EspDisplay), so
+// that a shorter string never leaves stray characters from the one it
+// replaces — but that means every call repaints the full row width,
+// regardless of whether anything actually changed. Calling it
+// unconditionally on every 500ms UI tick, for every line, made the screen
+// visibly flicker (solid-fill-then-redraw, 2 Hz, most of the display) even
+// when the telemetry hadn't moved. Skip the repaint entirely when neither
+// the text nor the color changed since the last time this line was drawn.
+static void drawIfChanged(int x, int y, const char* text, uint16_t color, char* cache, size_t cacheLen, uint16_t& lastColor) {
+    if (lastColor == color && strncmp(cache, text, cacheLen) == 0) {
+        return;
+    }
+    display.drawText(x, y, text, color);
+    snprintf(cache, cacheLen, "%s", text);
+    lastColor = color;
+}
 
 static BitaxeData readSharedData() {
     portENTER_CRITICAL(&dataMux);
@@ -235,8 +253,18 @@ void loop() {
         OperationMode mode = currentMode.load();
         char buf[64];
 
+        // Per-line "last drawn" cache so unchanged lines are skipped instead
+        // of being repainted (and flickering) every 500ms — see
+        // drawIfChanged() above.
+        static char lastTemp[64] = ""; static uint16_t lastTempColor = 0xFFFF;
+        static char lastHashrate[64] = ""; static uint16_t lastHashrateColor = 0xFFFF;
+        static char lastVolt[64] = ""; static uint16_t lastVoltColor = 0xFFFF;
+        static char lastFreq[64] = ""; static uint16_t lastFreqColor = 0xFFFF;
+        static char lastPow[64] = ""; static uint16_t lastPowColor = 0xFFFF;
+        static char lastMode[64] = ""; static uint16_t lastModeColor = 0xFFFF;
+
         snprintf(buf, sizeof(buf), "Temp: %.1f C", data.temperature);
-        display.drawText(10, 10, buf, data.isOverheating ? TFT_RED : TFT_GREEN);
+        drawIfChanged(10, 10, buf, data.isOverheating ? TFT_RED : TFT_GREEN, lastTemp, sizeof(lastTemp), lastTempColor);
 
         // If hashrate is crazy high (like 86000 GH/s), we'll display it in TH/s to save screen space
         if (data.hashrate > 9999.0f) {
@@ -244,13 +272,13 @@ void loop() {
         } else {
             snprintf(buf, sizeof(buf), "Hashrate: %.1f GH/s", data.hashrate);
         }
-        display.drawText(10, 40, buf, TFT_WHITE);
+        drawIfChanged(10, 40, buf, TFT_WHITE, lastHashrate, sizeof(lastHashrate), lastHashrateColor);
 
         snprintf(buf, sizeof(buf), "Volt: %d mV", data.coreVoltage);
-        display.drawText(10, 70, buf, TFT_YELLOW);
+        drawIfChanged(10, 70, buf, TFT_YELLOW, lastVolt, sizeof(lastVolt), lastVoltColor);
 
         snprintf(buf, sizeof(buf), "Freq: %d MHz", data.frequency);
-        display.drawText(10, 100, buf, TFT_CYAN);
+        drawIfChanged(10, 100, buf, TFT_CYAN, lastFreq, sizeof(lastFreq), lastFreqColor);
 
         // In autofanspeed mode AxeOS reports fanspeed=0%, so RPM is the
         // meaningful number; show the percent only when it is set manually.
@@ -259,16 +287,16 @@ void loop() {
         } else {
             snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %drpm", data.power, data.fanRpm);
         }
-        display.drawText(10, 155, buf, TFT_WHITE);
+        drawIfChanged(10, 155, buf, TFT_WHITE, lastPow, sizeof(lastPow), lastPowColor);
 
         // Draw Mode Status + WiFi state. y=129 (not 130): Font 4 is 26px tall,
         // and the row below sits at y=155 — at y=130 this row's fillRect
         // would clip one pixel off the top of that row's text.
         if (!wifiConnected.load()) {
-            display.drawText(10, 129, "Wi-Fi reconnecting...", TFT_RED);
+            drawIfChanged(10, 129, "Wi-Fi reconnecting...", TFT_RED, lastMode, sizeof(lastMode), lastModeColor);
         } else {
             snprintf(buf, sizeof(buf), "Mode: %s", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
-            display.drawText(10, 129, buf, mode == OperationMode::AUTOPILOT ? TFT_GREEN : TFT_ORANGE);
+            drawIfChanged(10, 129, buf, mode == OperationMode::AUTOPILOT ? TFT_GREEN : TFT_ORANGE, lastMode, sizeof(lastMode), lastModeColor);
         }
     }
 
