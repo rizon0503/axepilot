@@ -51,11 +51,11 @@ std::string DeepSeekOptimizer::optimize(const BitaxeData& data, const TelemetryH
         serializeJson(doc, payload);
 
         std::string headers = "Bearer " + apiKey;
-        std::string response = httpClient.post(baseUrl, payload, headers);
+        HttpResult httpResult = httpClient.post(baseUrl, payload, headers);
 
-        if (!response.empty() && response.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
+        if (httpResult.ok && httpResult.body.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
             JsonDocument respDoc;
-            if (!deserializeJson(respDoc, response)) {
+            if (!deserializeJson(respDoc, httpResult.body)) {
                 std::string content = respDoc["choices"][0]["message"]["content"] | "{}";
                 JsonDocument contentDoc;
                 if (!deserializeJson(contentDoc, content)) {
@@ -135,27 +135,22 @@ AiChatResult DeepSeekOptimizer::askQuestion(const std::string& question, const B
     serializeJson(doc, payload);
 
     std::string headers = "Bearer " + apiKey;
-    std::string response = httpClient.post(baseUrl, payload, headers);
+    HttpResult httpResult = httpClient.post(baseUrl, payload, headers);
 
-    if (response.empty()) {
-        result.reply = "Failed: Response totally empty.";
+    if (!httpResult.ok) {
+        result.reply = "Failed: " + httpResult.errorMessage + " (HTTP " + std::to_string(httpResult.statusCode) + ")";
         return result;
     }
-    if (response.size() > Limits::MAX_JSON_RESPONSE_BYTES) {
+    if (httpResult.body.size() > Limits::MAX_JSON_RESPONSE_BYTES) {
         result.reply = "Failed: Response too large to parse safely.";
         return result;
     }
 
     JsonDocument respDoc;
-    DeserializationError err = deserializeJson(respDoc, response);
+    DeserializationError err = deserializeJson(respDoc, httpResult.body);
 
     if (err) {
-        result.reply = "JSON Parse Error: " + std::string(err.c_str()) + " Code: " + response.substr(0, 20);
-        return result;
-    }
-
-    if (respDoc["error_http"].is<int>()) {
-        result.reply = "HTTP Error: " + respDoc["error_http"].as<std::string>() + " " + respDoc["error_msg"].as<std::string>();
+        result.reply = "JSON Parse Error: " + std::string(err.c_str()) + " Code: " + httpResult.body.substr(0, 20);
         return result;
     }
 
@@ -233,22 +228,19 @@ std::string DeepSeekOptimizer::explainState(const BitaxeData& data, const Teleme
     serializeJson(doc, payload);
 
     std::string headers = "Bearer " + apiKey;
-    std::string response = httpClient.post(baseUrl, payload, headers);
+    HttpResult httpResult = httpClient.post(baseUrl, payload, headers);
 
-    if (response.empty()) {
-        return "Failed: Response totally empty.";
+    if (!httpResult.ok) {
+        return "Failed: " + httpResult.errorMessage + " (HTTP " + std::to_string(httpResult.statusCode) + ")";
     }
-    if (response.size() > Limits::MAX_JSON_RESPONSE_BYTES) {
+    if (httpResult.body.size() > Limits::MAX_JSON_RESPONSE_BYTES) {
         return "Failed: Response too large to parse safely.";
     }
 
     JsonDocument respDoc;
-    DeserializationError err = deserializeJson(respDoc, response);
+    DeserializationError err = deserializeJson(respDoc, httpResult.body);
     if (err) {
         return "JSON Parse Error: " + std::string(err.c_str());
-    }
-    if (respDoc["error_http"].is<int>()) {
-        return "HTTP Error: " + respDoc["error_http"].as<std::string>() + " " + respDoc["error_msg"].as<std::string>();
     }
     if (respDoc["error"].is<JsonObject>()) {
         return "API Error: " + respDoc["error"]["message"].as<std::string>();

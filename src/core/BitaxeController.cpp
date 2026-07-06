@@ -14,11 +14,14 @@ void BitaxeController::update() {
         lastUpdate = now;
         
         std::string url = "http://" + ipAddress + "/api/system/info";
-        std::string response = httpClient.get(url);
-        
-        if (!response.empty() && response.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
+        HttpResult result = httpClient.get(url);
+
+        // On failure, leave currentData at its last known values instead of
+        // parsing whatever (if anything) came back — there's nothing valid
+        // to read.
+        if (result.ok && result.body.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
             JsonDocument doc;
-            DeserializationError error = deserializeJson(doc, response);
+            DeserializationError error = deserializeJson(doc, result.body);
             
             if (!error) {
                 currentData.temperature = doc["temp"] | 0.0f;

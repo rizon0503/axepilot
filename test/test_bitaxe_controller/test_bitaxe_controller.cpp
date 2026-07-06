@@ -135,6 +135,30 @@ void test_controller_ignores_oversized_response() {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, data.temperature); // untouched default, update was skipped
 }
 
+void test_controller_preserves_last_known_data_on_http_failure() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
+
+    mockHttp.getResponse = "{\"temp\": 65.0, \"hashRate\": 900, \"coreVoltage\": 1150, \"frequency\": 550}";
+    mockTime.currentTime = 5000;
+    controller.update();
+
+    // A transport failure (timeout, connection refused, etc.) must not
+    // overwrite the last known telemetry — there's nothing valid to read.
+    // Before HttpResult (#19), a failed GET still returned a JSON-shaped
+    // error string, which deserializeJson() parsed successfully; every
+    // field then fell back to its ArduinoJson default (0), silently
+    // zeroing out real telemetry on every HTTP error.
+    mockHttp.getShouldFail = true;
+    mockTime.currentTime = 7500; // past the 2s poll interval
+    controller.update();
+
+    BitaxeData data = controller.getData();
+    TEST_ASSERT_EQUAL_FLOAT(65.0f, data.temperature);
+    TEST_ASSERT_EQUAL_FLOAT(900.0f, data.hashrate);
+}
+
 void test_controller_rate_limits_polling() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -163,6 +187,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_controller_parses_pool_info);
     RUN_TEST(test_controller_defaults_vr_temp_when_absent);
     RUN_TEST(test_controller_ignores_oversized_response);
+    RUN_TEST(test_controller_preserves_last_known_data_on_http_failure);
     RUN_TEST(test_controller_rate_limits_polling);
     return UNITY_END();
 }

@@ -52,20 +52,20 @@ void beginRequest(HTTPClient& http, WiFiClient& client, const std::string& url, 
     http.setTimeout(timeoutMs);
 }
 
-std::string errorJson(int httpCode, const char* msg) {
+HttpResult errorResult(int httpCode, const char* msg) {
     log_w("HTTP error: code=%d msg=%s", httpCode, msg);
-    return "{\"error_http\": " + std::to_string(httpCode) + ", \"error_msg\": \"" + msg + "\"}";
+    return {false, httpCode, "", msg};
 }
 
-std::string readSimpleResponse(HTTPClient& http, int httpCode) {
+HttpResult readSimpleResponse(HTTPClient& http, int httpCode) {
     if (httpCode <= 0) {
-        return errorJson(httpCode, "HttpFailed");
+        return errorResult(httpCode, "HttpFailed");
     }
     String res = http.getString();
     if (res.length() == 0) {
-        return errorJson(httpCode, "EmptyBody");
+        return errorResult(httpCode, "EmptyBody");
     }
-    return res.c_str();
+    return {true, httpCode, res.c_str(), ""};
 }
 
 } // namespace
@@ -78,15 +78,15 @@ bool EspHttpClient::isTelegramUrl(const std::string& url) {
     return url.rfind("https://api.telegram.org", 0) == 0;
 }
 
-std::string EspHttpClient::get(const std::string& url) {
+HttpResult EspHttpClient::get(const std::string& url) {
     if (isTelegramUrl(url)) {
         telegramHttp.begin(telegramClient, url.c_str());
         telegramHttp.setReuse(true); // keep the TLS session alive between polls
         telegramHttp.setTimeout(TIMEOUT_FAST_MS);
         int httpCode = telegramHttp.GET();
-        std::string payload = readSimpleResponse(telegramHttp, httpCode);
+        HttpResult result = readSimpleResponse(telegramHttp, httpCode);
         telegramHttp.end(); // with reuse enabled the socket stays connected
-        return payload;
+        return result;
     }
 
     auto client = makeClient(url);
@@ -94,21 +94,21 @@ std::string EspHttpClient::get(const std::string& url) {
     beginRequest(http, *client, url, TIMEOUT_FAST_MS);
 
     int httpCode = http.GET();
-    std::string payload = readSimpleResponse(http, httpCode);
+    HttpResult result = readSimpleResponse(http, httpCode);
     http.end();
-    return payload;
+    return result;
 }
 
-std::string EspHttpClient::post(const std::string& url, const std::string& payload, const std::string& headers) {
+HttpResult EspHttpClient::post(const std::string& url, const std::string& payload, const std::string& headers) {
     if (isTelegramUrl(url)) {
         telegramHttp.begin(telegramClient, url.c_str());
         telegramHttp.setReuse(true);
         telegramHttp.setTimeout(TIMEOUT_FAST_MS);
         telegramHttp.addHeader("Content-Type", "application/json");
         int httpCode = telegramHttp.POST(payload.c_str());
-        std::string response = readSimpleResponse(telegramHttp, httpCode);
+        HttpResult result = readSimpleResponse(telegramHttp, httpCode);
         telegramHttp.end();
-        return response;
+        return result;
     }
 
     auto client = makeClient(url);
@@ -122,7 +122,7 @@ std::string EspHttpClient::post(const std::string& url, const std::string& paylo
     }
 
     int httpCode = http.POST(payload.c_str());
-    std::string response = "";
+    HttpResult result;
 
     if (httpCode == 200) {
         // Read the body manually: HTTPClient::getString() truncates or drops
@@ -134,25 +134,25 @@ std::string EspHttpClient::post(const std::string& url, const std::string& paylo
         EspSystemTime sysTime;
         std::string body;
         bool isChunked = (http.getSize() == -1);
-        bool ok = isChunked
+        bool decoded = isChunked
             ? ChunkedDecoder::decode(byteStream, sysTime, TIMEOUT_LLM_MS, body)
             : ChunkedDecoder::readExact(byteStream, sysTime, TIMEOUT_LLM_MS, (size_t)http.getSize(), body);
 
-        if (!ok) {
-            response = errorJson(200, "ManualReadFailed");
+        if (!decoded) {
+            result = errorResult(200, "ManualReadFailed");
         } else if (body.empty()) {
-            response = errorJson(200, "EmptyBody_ManualRead");
+            result = errorResult(200, "EmptyBody_ManualRead");
         } else {
-            response = body;
+            result = {true, 200, body, ""};
         }
     } else {
-        response = readSimpleResponse(http, httpCode);
+        result = readSimpleResponse(http, httpCode);
     }
     http.end();
-    return response;
+    return result;
 }
 
-std::string EspHttpClient::patch(const std::string& url, const std::string& payload, const std::string& headers) {
+HttpResult EspHttpClient::patch(const std::string& url, const std::string& payload, const std::string& headers) {
     auto client = makeClient(url);
     HTTPClient http;
     beginRequest(http, *client, url, TIMEOUT_FAST_MS);
@@ -163,7 +163,7 @@ std::string EspHttpClient::patch(const std::string& url, const std::string& payl
     }
 
     int httpCode = http.PATCH(payload.c_str());
-    std::string response = readSimpleResponse(http, httpCode);
+    HttpResult result = readSimpleResponse(http, httpCode);
     http.end();
-    return response;
+    return result;
 }
