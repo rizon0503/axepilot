@@ -28,6 +28,7 @@
 #include "core/DailyStats.h"
 #include "core/RebootStats.h"
 #include "core/Limits.h"
+#include "core/TouchMapper.h"
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -321,8 +322,7 @@ void loop() {
         isScreenOn = false;
     }
 
-    if (touched && isScreenOn && throttleRestoreAt == 0) {
-        // Since resistive touch is uncalibrated, any firm press triggers the emergency throttle.
+    if (touched && isScreenOn && throttleRestoreAt == 0 && TouchMapper::isWithinRect(tx, ty, 0, 180, 320, 60)) {
         // The actual PATCH + Telegram message happen on the network task.
         throttleRequested = true;
 

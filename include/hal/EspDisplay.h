@@ -35,4 +35,12 @@ private:
     // position (drawText() then falls back to clearing the full row for
     // that call, so correctness never depends on this limit).
     int* widthSlotFor(int x, int y);
+
+    // Raw XPT2046 ADC calibration, measured on the physical device (#5):
+    // touched all four screen corners and recorded the raw (x, y) readings
+    // via Serial. See TouchMapper for the mapping math.
+    static constexpr int TOUCH_RAW_X_MIN = 300;
+    static constexpr int TOUCH_RAW_X_MAX = 3700;
+    static constexpr int TOUCH_RAW_Y_MIN = 550;
+    static constexpr int TOUCH_RAW_Y_MAX = 3650;
 };

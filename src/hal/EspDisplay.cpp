@@ -1,4 +1,5 @@
 #include "hal/EspDisplay.h"
+#include "core/TouchMapper.h"
 
 EspDisplay::EspDisplay() : ts(33, 36) {} // CS=33, IRQ=36
 
@@ -81,7 +82,10 @@ bool EspDisplay::touched(int& x, int& y) {
     bool isTouched = ts.touched();
     if (isTouched) {
         TS_Point p = ts.getPoint();
-        x = p.x; y = p.y;
+        TouchMapper::toScreen(p.x, p.y,
+                               TOUCH_RAW_X_MIN, TOUCH_RAW_X_MAX, TOUCH_RAW_Y_MIN, TOUCH_RAW_Y_MAX,
+                               tft.width(), tft.height(),
+                               x, y);
     }
     return isTouched;
 }
