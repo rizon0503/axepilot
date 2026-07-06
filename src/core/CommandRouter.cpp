@@ -117,6 +117,14 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
             notifier.sendMessage(std::string("📜 Recent interventions (newest first):\n\n") + log);
         }
     }
+    else if (msg == "/why") {
+        char journal[768] = "";
+        if (miner.interventions().size() > 0) {
+            miner.interventions().format(journal, sizeof(journal), sysTime.millis());
+        }
+        std::string explanation = optimizer.explainState(data, history, journal);
+        notifier.sendMessage("🤔 " + explanation);
+    }
     else if (msg == "/bench" || msg == "/bench status") {
         notifier.sendMessage(benchmark.progress(sysTime.millis()));
     }
@@ -136,6 +144,7 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
             "🔹 /esp - Controller status\n"
             "🔹 /set <freq> <volt> - Force specific settings\n"
             "🔹 /history - Journal of recent settings changes\n"
+            "🔹 /why - AI explains the current state\n"
             "🔹 /bench start|stop|status - Benchmark presets (~30 min)\n"
             "🔹 /fan <25-100> | /fan auto - Fan control\n"
             "🔹 /restart - Restart the miner\n\n"

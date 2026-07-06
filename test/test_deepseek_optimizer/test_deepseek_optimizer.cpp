@@ -360,6 +360,59 @@ void test_optimizer_includes_history_averaged_efficiency_in_prompt() {
     TEST_ASSERT_TRUE(mockHttp.lastPostPayload.find("avg efficiency 73.3 GH/W") != std::string::npos);
 }
 
+void test_explain_state_sends_telemetry_trend_and_journal() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    TelemetryHistory history;
+    BitaxeData s1{}; s1.temperature = 68.0f; s1.hashrate = 1000.0f; s1.power = 14.0f;
+    BitaxeData s2{}; s2.temperature = 72.0f; s2.hashrate = 1200.0f; s2.power = 16.0f;
+    history.record(s1, 0);
+    history.record(s2, 120000);
+
+    mockHttp.postResponse = deepseekReply("{\"reply\":\"The autopilot lowered settings because it got hot.\"}");
+
+    std::string explanation = optimizer.explainState(overheatingData(), history, "2m ago - Autopilot: 490 MHz / 1100 mV");
+
+    TEST_ASSERT_EQUAL_STRING("The autopilot lowered settings because it got hot.", explanation.c_str());
+
+    JsonDocument doc;
+    deserializeJson(doc, mockHttp.lastPostPayload);
+    std::string userContent = doc["messages"][1]["content"].as<const char*>();
+    TEST_ASSERT_TRUE(userContent.find("Temp=72.0") != std::string::npos);
+    TEST_ASSERT_TRUE(userContent.find("History: temp trend") != std::string::npos);
+    TEST_ASSERT_TRUE(userContent.find("Autopilot: 490 MHz / 1100 mV") != std::string::npos);
+}
+
+void test_explain_state_handles_empty_journal() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    mockHttp.postResponse = deepseekReply("{\"reply\":\"Nothing has changed yet.\"}");
+
+    std::string explanation = optimizer.explainState(overheatingData(), g_emptyHistory, "");
+
+    TEST_ASSERT_EQUAL_STRING("Nothing has changed yet.", explanation.c_str());
+    TEST_ASSERT_TRUE(mockHttp.lastPostPayload.find("(none)") != std::string::npos);
+}
+
+void test_explain_state_handles_empty_response() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    mockHttp.postResponse = "";
+
+    std::string explanation = optimizer.explainState(overheatingData(), g_emptyHistory, "");
+
+    TEST_ASSERT_TRUE(explanation.find("Failed") != std::string::npos);
+}
+
 void test_optimizer_uses_custom_endpoint_and_model() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -408,6 +461,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ask_question_request_structure_includes_replayed_history);
     RUN_TEST(test_optimizer_states_efficiency_goal_and_current_efficiency);
     RUN_TEST(test_optimizer_includes_history_averaged_efficiency_in_prompt);
+    RUN_TEST(test_explain_state_sends_telemetry_trend_and_journal);
+    RUN_TEST(test_explain_state_handles_empty_journal);
+    RUN_TEST(test_explain_state_handles_empty_response);
     RUN_TEST(test_optimizer_uses_custom_endpoint_and_model);
     RUN_TEST(test_ask_question_reports_mode_change_structurally);
     return UNITY_END();
