@@ -20,22 +20,17 @@ void EspDisplay::clear() {
     tft.fillScreen(TFT_BLACK);
 }
 
-int& EspDisplay::widthSlotFor(int x, int y) {
+int* EspDisplay::widthSlotFor(int x, int y) {
     for (size_t i = 0; i < lineExtentCount; i++) {
         if (lineExtents[i].x == x && lineExtents[i].y == y) {
-            return lineExtents[i].width;
+            return &lineExtents[i].width;
         }
     }
     if (lineExtentCount < MAX_TRACKED_LINES) {
         lineExtents[lineExtentCount] = {x, y, 0};
-        return lineExtents[lineExtentCount++].width;
+        return &lineExtents[lineExtentCount++].width;
     }
-    // Ran out of tracked slots (shouldn't happen with this project's fixed
-    // UI layout) — fall back to "0 previously", so the clear region is at
-    // least as wide as the new text (still correct, just not minimal).
-    static int overflowWidth = 0;
-    overflowWidth = 0;
-    return overflowWidth;
+    return nullptr; // out of tracked slots — caller falls back to full-row clearing
 }
 
 void EspDisplay::drawText(int x, int y, const std::string& text, uint16_t color) {
@@ -45,15 +40,21 @@ void EspDisplay::drawText(int x, int y, const std::string& text, uint16_t color)
     // was the previous approach), without blanking the full remaining row
     // every time, which visibly flickers for lines that change often.
     int newWidth = tft.textWidth(text.c_str(), 4);
-    int& lastWidth = widthSlotFor(x, y);
-    int clearWidth = (lastWidth > newWidth) ? lastWidth : newWidth;
     int maxWidth = tft.width() - x;
+    int clearWidth;
+
+    int* lastWidth = widthSlotFor(x, y);
+    if (lastWidth != nullptr) {
+        clearWidth = (*lastWidth > newWidth) ? *lastWidth : newWidth;
+        *lastWidth = newWidth;
+    } else {
+        clearWidth = maxWidth; // no free tracking slot — stay correct, just not minimal
+    }
     if (clearWidth > maxWidth) clearWidth = maxWidth;
 
     tft.fillRect(x, y, clearWidth, tft.fontHeight(4), TFT_BLACK);
     tft.setTextColor(color, TFT_BLACK);
     tft.drawString(text.c_str(), x, y, 4); // Font 4
-    lastWidth = newWidth;
 }
 
 void EspDisplay::drawButton(int x, int y, int w, int h, const std::string& label, uint16_t color) {

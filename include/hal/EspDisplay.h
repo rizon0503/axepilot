@@ -30,5 +30,9 @@ private:
     LineExtent lineExtents[MAX_TRACKED_LINES] = {};
     size_t lineExtentCount = 0;
 
-    int& widthSlotFor(int x, int y);
+    // Returns the tracked width slot for (x, y), creating one if there's
+    // room; nullptr if every slot is already in use by a different
+    // position (drawText() then falls back to clearing the full row for
+    // that call, so correctness never depends on this limit).
+    int* widthSlotFor(int x, int y);
 };
