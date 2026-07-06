@@ -18,7 +18,7 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
         notifier.sendMessage("⚠️ Mode switched to MANUAL.\nAutopilot disabled.");
     }
     else if (msg == "/status") {
-        char status[512];
+        char status[640];
         int len = snprintf(status, sizeof(status),
                  "📊 Current status:\n🌡️ Temperature: %.1f°C",
                  data.temperature);
@@ -44,7 +44,7 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
             } else {
                 snprintf(fan, sizeof(fan), "auto, %d rpm", data.fanRpm);
             }
-            snprintf(status + len, sizeof(status) - len,
+            len += snprintf(status + len, sizeof(status) - len,
                  "\n⛏️ Hashrate: %.1f GH/s\n⚙️ %d MHz / %d mV\n⚡ Power: %.1f W%s\n🌀 Fan: %s\n📈 Shares: ✅%u / ❌%u\n🏆 Best diff: %s\n⏱️ Miner uptime: %uh %um\n🤖 Mode: %s",
                  data.hashrate, data.frequency, data.coreVoltage,
                  data.power, efficiency,
@@ -53,6 +53,12 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
                  data.bestDiff[0] ? data.bestDiff : "-",
                  (unsigned)(data.uptimeSeconds / 3600), (unsigned)((data.uptimeSeconds % 3600) / 60),
                  (mode == OperationMode::AUTOPILOT ? "AUTOPILOT" : "MANUAL"));
+
+            if (len > 0 && (size_t)len < sizeof(status) && data.stratumURL[0]) {
+                snprintf(status + len, sizeof(status) - len,
+                     "\n🔌 Pool: %s:%d (%s)",
+                     data.stratumURL, data.stratumPort, data.stratumUser[0] ? data.stratumUser : "-");
+            }
         }
         notifier.sendMessage(status);
     }

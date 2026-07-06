@@ -34,6 +34,11 @@ void BitaxeController::update() {
                 currentData.uptimeSeconds = doc["uptimeSeconds"] | 0;
                 const char* bestDiff = doc["bestDiff"] | "";
                 snprintf(currentData.bestDiff, sizeof(currentData.bestDiff), "%s", bestDiff);
+                const char* stratumURL = doc["stratumURL"] | "";
+                snprintf(currentData.stratumURL, sizeof(currentData.stratumURL), "%s", stratumURL);
+                currentData.stratumPort = doc["stratumPort"] | 0;
+                const char* stratumUser = doc["stratumUser"] | "";
+                snprintf(currentData.stratumUser, sizeof(currentData.stratumUser), "%s", stratumUser);
                 currentData.isOverheating = currentData.temperature >= Limits::TEMP_MAX;
                 // temp == 0.0 means the sensor reading is invalid — treat as neither hot nor cold
                 currentData.isTooCold = (currentData.temperature > 0.0f && currentData.temperature <= Limits::TEMP_COLD);

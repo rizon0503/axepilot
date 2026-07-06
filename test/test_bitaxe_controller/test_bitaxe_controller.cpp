@@ -88,6 +88,24 @@ void test_controller_parses_vr_temp() {
     TEST_ASSERT_EQUAL_FLOAT(78.5f, controller.getData().vrTemp);
 }
 
+void test_controller_parses_pool_info() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
+
+    mockHttp.getResponse =
+        "{\"temp\": 60.0, \"hashRate\": 1000, \"coreVoltage\": 1100, \"frequency\": 500,"
+        " \"stratumURL\": \"public-pool.io\", \"stratumPort\": 21496,"
+        " \"stratumUser\": \"bc1qxyz.worker1\"}";
+    mockTime.currentTime = 5000;
+    controller.update();
+
+    BitaxeData data = controller.getData();
+    TEST_ASSERT_EQUAL_STRING("public-pool.io", data.stratumURL);
+    TEST_ASSERT_EQUAL(21496, data.stratumPort);
+    TEST_ASSERT_EQUAL_STRING("bc1qxyz.worker1", data.stratumUser);
+}
+
 void test_controller_defaults_vr_temp_when_absent() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -142,6 +160,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_controller_treats_zero_temp_as_invalid_reading);
     RUN_TEST(test_controller_parses_extended_telemetry);
     RUN_TEST(test_controller_parses_vr_temp);
+    RUN_TEST(test_controller_parses_pool_info);
     RUN_TEST(test_controller_defaults_vr_temp_when_absent);
     RUN_TEST(test_controller_ignores_oversized_response);
     RUN_TEST(test_controller_rate_limits_polling);
