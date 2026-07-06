@@ -9,6 +9,14 @@ public:
     std::string postResponse = "{\"ok\":true}";
     std::string patchResponse;
 
+    // When set, the corresponding call returns HttpResult{ok=false} instead
+    // of the canned response above — simulates a real transport failure
+    // (timeout, connection refused, etc.), as opposed to a successful
+    // request that merely returned an empty/garbage body.
+    bool getShouldFail = false;
+    bool postShouldFail = false;
+    bool patchShouldFail = false;
+
     std::string lastGetUrl;
     std::string lastPostUrl;
     std::string lastPostPayload;
@@ -39,25 +47,34 @@ public:
         return "";
     }
 
-    std::string get(const std::string& url) override {
+    // Mirrors EspHttpClient's real behavior: an empty body is always treated
+    // as a failure (readSimpleResponse() never returns ok=true with an
+    // empty body), not a successful-but-empty response.
+    HttpResult get(const std::string& url) override {
         getCount++;
         lastGetUrl = url;
-        return getResponse;
+        if (getShouldFail) return {false, 0, "", "MockFailure"};
+        if (getResponse.empty()) return {false, 0, "", "EmptyBody"};
+        return {true, 200, getResponse, ""};
     }
 
-    std::string post(const std::string& url, const std::string& payload, const std::string& headers) override {
+    HttpResult post(const std::string& url, const std::string& payload, const std::string& headers) override {
         postCount++;
         lastPostUrl = url;
         lastPostPayload = payload;
         postUrls.push_back(url);
         postPayloads.push_back(payload);
-        return postResponse;
+        if (postShouldFail) return {false, 0, "", "MockFailure"};
+        if (postResponse.empty()) return {false, 0, "", "EmptyBody"};
+        return {true, 200, postResponse, ""};
     }
 
-    std::string patch(const std::string& url, const std::string& payload, const std::string& headers) override {
+    HttpResult patch(const std::string& url, const std::string& payload, const std::string& headers) override {
         patchCount++;
         lastPatchUrl = url;
         lastPatchPayload = payload;
-        return patchResponse;
+        if (patchShouldFail) return {false, 0, "", "MockFailure"};
+        if (patchResponse.empty()) return {false, 0, "", "EmptyBody"};
+        return {true, 200, patchResponse, ""};
     }
 };

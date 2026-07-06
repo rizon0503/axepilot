@@ -26,11 +26,11 @@ std::string TelegramNotifier::pollNewMessage(uint32_t currentMillis) {
             url += "&offset=" + std::to_string(lastUpdateId);
         }
         
-        std::string response = httpClient.get(url);
-        
-        if (!response.empty() && response.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
+        HttpResult httpResult = httpClient.get(url);
+
+        if (httpResult.ok && httpResult.body.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
             JsonDocument doc;
-            DeserializationError err = deserializeJson(doc, response);
+            DeserializationError err = deserializeJson(doc, httpResult.body);
             if (!err && doc["ok"].as<bool>()) {
                 JsonArray result = doc["result"].as<JsonArray>();
                 for (JsonObject update : result) {

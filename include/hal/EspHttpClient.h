@@ -6,9 +6,9 @@
 class EspHttpClient : public IHttpClient {
 public:
     EspHttpClient();
-    std::string get(const std::string& url) override;
-    std::string post(const std::string& url, const std::string& payload, const std::string& headers = "") override;
-    std::string patch(const std::string& url, const std::string& payload, const std::string& headers = "") override;
+    HttpResult get(const std::string& url) override;
+    HttpResult post(const std::string& url, const std::string& payload, const std::string& headers = "") override;
+    HttpResult patch(const std::string& url, const std::string& payload, const std::string& headers = "") override;
 
 private:
     // Telegram is polled every 2 s; a persistent keep-alive session avoids
