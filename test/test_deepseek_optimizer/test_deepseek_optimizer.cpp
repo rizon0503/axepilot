@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <ArduinoJson.h>
 #include "core/DeepSeekOptimizer.h"
 #include "core/BitaxeController.h"
 #include "core/Limits.h"
@@ -227,6 +228,93 @@ void test_ask_question_replays_conversation_context() {
     TEST_ASSERT_TRUE(mockHttp.lastPostPayload.find("assistant") != std::string::npos);
 }
 
+// Guards against accidentally breaking the DeepSeek prompt: these parse the
+// actual outgoing request JSON (not just substring-search it) and assert on
+// the structural pieces a working integration depends on.
+void test_optimize_request_has_well_formed_structure() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    mockHttp.postResponse = deepseekReply("{\"frequency\":490,\"coreVoltage\":1100,\"reason\":\"ok\"}");
+    mockTime.currentTime = 60000;
+
+    optimizer.optimize(overheatingData(), g_emptyHistory);
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, mockHttp.lastPostPayload);
+    TEST_ASSERT_FALSE(err);
+
+    TEST_ASSERT_EQUAL_STRING("deepseek-chat", doc["model"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("json_object", doc["response_format"]["type"].as<const char*>());
+
+    JsonArray messages = doc["messages"].as<JsonArray>();
+    TEST_ASSERT_EQUAL(2, messages.size());
+    TEST_ASSERT_EQUAL_STRING("system", messages[0]["role"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("user", messages[1]["role"].as<const char*>());
+
+    std::string userContent = messages[1]["content"].as<const char*>();
+    TEST_ASSERT_TRUE(userContent.find("Temp=72.0") != std::string::npos);
+    TEST_ASSERT_TRUE(userContent.find("Freq=625") != std::string::npos);
+    TEST_ASSERT_TRUE(userContent.find("Volt=1250") != std::string::npos);
+}
+
+void test_ask_question_request_has_well_formed_structure() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    mockHttp.postResponse = deepseekReply("{\"reply\":\"Done\"}");
+
+    optimizer.askQuestion("what's going on?", overheatingData());
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, mockHttp.lastPostPayload);
+    TEST_ASSERT_FALSE(err);
+
+    TEST_ASSERT_EQUAL_STRING("deepseek-chat", doc["model"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("json_object", doc["response_format"]["type"].as<const char*>());
+
+    JsonArray messages = doc["messages"].as<JsonArray>();
+    TEST_ASSERT_EQUAL(2, messages.size()); // no prior chat history yet
+    TEST_ASSERT_EQUAL_STRING("system", messages[0]["role"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("user", messages[1]["role"].as<const char*>());
+
+    std::string userContent = messages[1]["content"].as<const char*>();
+    TEST_ASSERT_TRUE(userContent.find("what's going on?") != std::string::npos);
+    TEST_ASSERT_TRUE(userContent.find("Temp=72.0") != std::string::npos);
+}
+
+void test_ask_question_request_structure_includes_replayed_history() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    mockHttp.postResponse = deepseekReply("{\"reply\":\"550 MHz\"}");
+    optimizer.askQuestion("what's the frequency?", overheatingData());
+
+    mockHttp.postResponse = deepseekReply("{\"reply\":\"Ok, done\"}");
+    optimizer.askQuestion("now 25 more", overheatingData());
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, mockHttp.lastPostPayload);
+    TEST_ASSERT_FALSE(err);
+
+    JsonArray messages = doc["messages"].as<JsonArray>();
+    // system + (past user, past assistant) + new user = 4
+    TEST_ASSERT_EQUAL(4, messages.size());
+    TEST_ASSERT_EQUAL_STRING("system", messages[0]["role"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("user", messages[1]["role"].as<const char*>());
+    TEST_ASSERT_TRUE(std::string(messages[1]["content"].as<const char*>()).find("what's the frequency?") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("assistant", messages[2]["role"].as<const char*>());
+    TEST_ASSERT_TRUE(std::string(messages[2]["content"].as<const char*>()).find("550 MHz") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("user", messages[3]["role"].as<const char*>());
+    TEST_ASSERT_TRUE(std::string(messages[3]["content"].as<const char*>()).find("now 25 more") != std::string::npos);
+}
+
 void test_optimizer_uses_custom_endpoint_and_model() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -270,6 +358,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ask_question_rejects_out_of_range_settings);
     RUN_TEST(test_ask_question_applies_valid_settings);
     RUN_TEST(test_ask_question_replays_conversation_context);
+    RUN_TEST(test_optimize_request_has_well_formed_structure);
+    RUN_TEST(test_ask_question_request_has_well_formed_structure);
+    RUN_TEST(test_ask_question_request_structure_includes_replayed_history);
     RUN_TEST(test_optimizer_uses_custom_endpoint_and_model);
     RUN_TEST(test_ask_question_reports_mode_change_structurally);
     return UNITY_END();
