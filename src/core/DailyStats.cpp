@@ -38,24 +38,36 @@ void DailyStats::record(const BitaxeData& data, uint32_t nowMs) {
     lastRejected = data.sharesRejected;
 }
 
+void DailyStats::initializeLastFiredDay(time_t nowEpoch) {
+    time_t today = nowEpoch / 86400;
+    struct tm* tmInfo = gmtime(&nowEpoch);
+    // Past today's digest hour: skip today (no full day of data yet), wait
+    // for tomorrow. Before it: allow today's digest once the clock reaches
+    // DIGEST_HOUR_UTC.
+    lastFiredDay = (tmInfo->tm_hour >= DIGEST_HOUR_UTC) ? today : today - 1;
+}
+
 std::string DailyStats::tick(uint32_t nowMs, time_t nowEpoch, uint32_t interventionsTotal) {
     if (!started) {
         started = true;
         periodStartMs = nowMs;
         interventionsAtStart = interventionsTotal;
         if (nowEpoch > 0) {
-            time_t today = nowEpoch / 86400;
-            struct tm* tmInfo = gmtime(&nowEpoch);
-            // Booted past today's digest hour: skip today (no full day of
-            // data yet), wait for tomorrow. Booted before it: allow today's
-            // digest once the clock reaches DIGEST_HOUR_UTC.
-            lastFiredDay = (tmInfo->tm_hour >= DIGEST_HOUR_UTC) ? today : today - 1;
+            initializeLastFiredDay(nowEpoch);
         }
         return "";
     }
 
     bool shouldFire;
     if (nowEpoch > 0) {
+        if (lastFiredDay == -1) {
+            // NTP just became available for the first time this boot
+            // (configTime() is asynchronous, so nowEpoch was still 0 on
+            // the first tick() above) — establish a baseline instead of
+            // letting the "-1 = never fired" sentinel fire immediately
+            // regardless of time of day.
+            initializeLastFiredDay(nowEpoch);
+        }
         time_t today = nowEpoch / 86400;
         struct tm* tmInfo = gmtime(&nowEpoch);
         shouldFire = (today != lastFiredDay && tmInfo->tm_hour >= DIGEST_HOUR_UTC);

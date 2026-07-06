@@ -36,4 +36,10 @@ private:
     uint32_t lastRejected = 0;
 
     void resetAccumulators();
+    // Sets lastFiredDay to a sensible baseline the first time nowEpoch is
+    // actually valid this boot (NTP sync via configTime() is asynchronous,
+    // so it's usually still 0 on the very first tick()) — otherwise
+    // lastFiredDay's "-1 = never fired" sentinel makes the very next tick
+    // after NTP syncs fire immediately, regardless of time of day.
+    void initializeLastFiredDay(time_t nowEpoch);
 };
