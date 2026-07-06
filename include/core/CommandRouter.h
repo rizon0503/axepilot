@@ -6,6 +6,7 @@
 #include "core/BitaxeData.h"
 #include "core/TelemetryHistory.h"
 #include "core/BenchmarkRunner.h"
+#include "core/RebootStats.h"
 #include "interfaces/ISystemInfo.h"
 #include "interfaces/ISystemTime.h"
 #include <string>
@@ -17,7 +18,7 @@ class CommandRouter {
 public:
     CommandRouter(TelegramNotifier& notifier, DeepSeekOptimizer& optimizer, BitaxeController& miner,
                   ISystemInfo& sysInfo, ISystemTime& sysTime, const TelemetryHistory& history,
-                  BenchmarkRunner& benchmark);
+                  BenchmarkRunner& benchmark, const RebootStats& rebootStats);
 
     // Handles one message; may change `mode`.
     void handle(const std::string& msg, const BitaxeData& data, OperationMode& mode);
@@ -30,4 +31,5 @@ private:
     ISystemTime& sysTime;
     const TelemetryHistory& history;
     BenchmarkRunner& benchmark;
+    const RebootStats& rebootStats;
 };

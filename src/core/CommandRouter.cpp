@@ -4,9 +4,9 @@
 
 CommandRouter::CommandRouter(TelegramNotifier& notifier, DeepSeekOptimizer& optimizer, BitaxeController& miner,
                              ISystemInfo& sysInfo, ISystemTime& sysTime, const TelemetryHistory& history,
-                             BenchmarkRunner& benchmark)
+                             BenchmarkRunner& benchmark, const RebootStats& rebootStats)
     : notifier(notifier), optimizer(optimizer), miner(miner), sysInfo(sysInfo), sysTime(sysTime),
-      history(history), benchmark(benchmark) {}
+      history(history), benchmark(benchmark), rebootStats(rebootStats) {}
 
 void CommandRouter::handle(const std::string& msg, const BitaxeData& data, OperationMode& mode) {
     if (msg == "/mode auto" || msg == "/auto") {
@@ -52,20 +52,24 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
         notifier.sendMessage(status);
     }
     else if (msg == "/esp") {
-        char espInfo[384];
+        char espInfo[512];
         uint32_t uptimeSec = sysTime.millis() / 1000;
+        uint32_t recordSec = rebootStats.uptimeRecordSeconds();
         snprintf(espInfo, sizeof(espInfo),
                  "💻 **ESP32 CYD Status**:\n\n"
-                 "⏱️ Uptime: %02u:%02u:%02u\n"
-                 "🔁 Reset reason: %s\n"
+                 "⏱️ Uptime: %02u:%02u:%02u (record: %02u:%02u:%02u)\n"
+                 "🔁 Reset reason: %s (resets so far: %u)\n"
                  "📶 Wi-Fi RSSI: %d dBm (drops: %u)\n"
                  "🧠 Free Heap: %u KB (min: %u KB)\n"
-                 "📦 Max Alloc: %u KB",
+                 "📦 Max Alloc: %u KB\n"
+                 "🤖 Autopilot interventions (lifetime): %u",
                  (unsigned)(uptimeSec / 3600), (unsigned)((uptimeSec % 3600) / 60), (unsigned)(uptimeSec % 60),
-                 sysInfo.resetReason(),
+                 (unsigned)(recordSec / 3600), (unsigned)((recordSec % 3600) / 60), (unsigned)(recordSec % 60),
+                 sysInfo.resetReason(), (unsigned)rebootStats.resetCount(),
                  sysInfo.wifiRssi(), (unsigned)sysInfo.wifiReconnectCount(),
                  (unsigned)(sysInfo.freeHeapBytes() / 1024), (unsigned)(sysInfo.minFreeHeapBytes() / 1024),
-                 (unsigned)(sysInfo.maxAllocBytes() / 1024));
+                 (unsigned)(sysInfo.maxAllocBytes() / 1024),
+                 (unsigned)rebootStats.interventionTotal());
         notifier.sendMessage(espInfo);
     }
     else if (msg == "/fan auto") {

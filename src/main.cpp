@@ -25,6 +25,7 @@
 #include "core/TelemetryHistory.h"
 #include "core/BenchmarkRunner.h"
 #include "core/DailyStats.h"
+#include "core/RebootStats.h"
 #include "core/Limits.h"
 
 const char* ssid = WIFI_SSID;
@@ -47,7 +48,8 @@ SafetyGuard safetyGuard(controller);
 TelemetryHistory history; // written only by the network task
 BenchmarkRunner benchmark(controller);
 DailyStats dailyStats;
-CommandRouter router(notifier, optimizer, controller, sysInfo, sysTime, history, benchmark);
+RebootStats rebootStats(settingsStore); // rebootStats.begin() is called from setup(), not here — no NVS I/O before it's safe
+CommandRouter router(notifier, optimizer, controller, sysInfo, sysTime, history, benchmark, rebootStats);
 
 // ---- State shared between the network task (core 0) and the UI loop (core 1) ----
 // BitaxeData is a small POD, so a spinlock-protected copy is enough.
@@ -106,6 +108,7 @@ static void networkTask(void*) {
         portEXIT_CRITICAL(&dataMux);
         history.record(data, sysTime.millis());
         dailyStats.record(data, sysTime.millis());
+        rebootStats.tick(sysTime.millis() / 1000, controller.interventions().totalCount());
 
         std::string digest = dailyStats.tick(sysTime.millis(), controller.interventions().totalCount());
         if (!digest.empty()) {
@@ -175,6 +178,7 @@ void setup() {
     Serial.begin(115200);
     esp_task_wdt_init(180, true); // panic + reboot if the network task hangs
     currentMode = settingsStore.loadMode(OperationMode::AUTOPILOT);
+    rebootStats.begin();
     display.init();
     display.drawText(10, 10, "Connecting to WiFi...", TFT_WHITE);
 
