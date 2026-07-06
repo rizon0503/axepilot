@@ -21,6 +21,10 @@ void EspDisplay::clear() {
 }
 
 void EspDisplay::drawText(int x, int y, const std::string& text, uint16_t color) {
+    // Clear the full row before drawing so a shorter string never leaves
+    // stray characters from whatever longer text was there before —
+    // padding the string with trailing spaces was the previous approach.
+    tft.fillRect(x, y, tft.width() - x, tft.fontHeight(4), TFT_BLACK);
     tft.setTextColor(color, TFT_BLACK);
     tft.drawString(text.c_str(), x, y, 4); // Font 4
 }

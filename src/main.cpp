@@ -225,38 +225,40 @@ void loop() {
         OperationMode mode = currentMode.load();
         char buf[64];
 
-        snprintf(buf, sizeof(buf), "Temp: %.1f C       ", data.temperature);
+        snprintf(buf, sizeof(buf), "Temp: %.1f C", data.temperature);
         display.drawText(10, 10, buf, data.isOverheating ? TFT_RED : TFT_GREEN);
 
-        // If hashrate is crazy high (like 86000 GH/s), we'll display it in TH/s to save screen space, plus trailing spaces
+        // If hashrate is crazy high (like 86000 GH/s), we'll display it in TH/s to save screen space
         if (data.hashrate > 9999.0f) {
-            snprintf(buf, sizeof(buf), "Hashrate: %.1f TH/s    ", data.hashrate / 1000.0f);
+            snprintf(buf, sizeof(buf), "Hashrate: %.1f TH/s", data.hashrate / 1000.0f);
         } else {
-            snprintf(buf, sizeof(buf), "Hashrate: %.1f GH/s    ", data.hashrate);
+            snprintf(buf, sizeof(buf), "Hashrate: %.1f GH/s", data.hashrate);
         }
         display.drawText(10, 40, buf, TFT_WHITE);
 
-        snprintf(buf, sizeof(buf), "Volt: %d mV        ", data.coreVoltage);
+        snprintf(buf, sizeof(buf), "Volt: %d mV", data.coreVoltage);
         display.drawText(10, 70, buf, TFT_YELLOW);
 
-        snprintf(buf, sizeof(buf), "Freq: %d MHz       ", data.frequency);
+        snprintf(buf, sizeof(buf), "Freq: %d MHz", data.frequency);
         display.drawText(10, 100, buf, TFT_CYAN);
 
         // In autofanspeed mode AxeOS reports fanspeed=0%, so RPM is the
         // meaningful number; show the percent only when it is set manually.
         if (data.fanSpeedPercent > 0) {
-            snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %d%%    ", data.power, data.fanSpeedPercent);
+            snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %d%%", data.power, data.fanSpeedPercent);
         } else {
-            snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %drpm   ", data.power, data.fanRpm);
+            snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %drpm", data.power, data.fanRpm);
         }
         display.drawText(10, 155, buf, TFT_WHITE);
 
-        // Draw Mode Status + WiFi state
+        // Draw Mode Status + WiFi state. y=129 (not 130): Font 4 is 26px tall,
+        // and the row below sits at y=155 — at y=130 this row's fillRect
+        // would clip one pixel off the top of that row's text.
         if (!wifiConnected.load()) {
-            display.drawText(10, 130, "Wi-Fi reconnecting...   ", TFT_RED);
+            display.drawText(10, 129, "Wi-Fi reconnecting...", TFT_RED);
         } else {
-            snprintf(buf, sizeof(buf), "Mode: %-10s     ", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
-            display.drawText(10, 130, buf, mode == OperationMode::AUTOPILOT ? TFT_GREEN : TFT_ORANGE);
+            snprintf(buf, sizeof(buf), "Mode: %s", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
+            display.drawText(10, 129, buf, mode == OperationMode::AUTOPILOT ? TFT_GREEN : TFT_ORANGE);
         }
     }
 
