@@ -244,7 +244,12 @@ static void networkTask(void*) {
         // Frequency/voltage preset tapped on the Controls screen
         if (presetRequested.exchange(false)) {
             currentMode = OperationMode::MANUAL;
-            controller.applySettings(presetFrequency.load(), presetCoreVoltage.load(), "CYD preset");
+            int freq = presetFrequency.load();
+            int volt = presetCoreVoltage.load();
+            controller.applySettings(freq, volt, "CYD preset");
+            char presetMsg[96];
+            snprintf(presetMsg, sizeof(presetMsg), "⚙️ Preset applied via screen.\nMode: MANUAL, Freq: %d, Volt: %d", freq, volt);
+            notifier.sendMessage(presetMsg);
         }
 
         // Miner restart requested from the Controls screen
@@ -255,7 +260,11 @@ static void networkTask(void*) {
 
         // AUTO/MANUAL toggle tapped on the Controls screen
         if (modeToggleRequested.exchange(false)) {
-            currentMode = currentMode.load() == OperationMode::AUTOPILOT ? OperationMode::MANUAL : OperationMode::AUTOPILOT;
+            OperationMode newMode = currentMode.load() == OperationMode::AUTOPILOT ? OperationMode::MANUAL : OperationMode::AUTOPILOT;
+            currentMode = newMode;
+            notifier.sendMessage(newMode == OperationMode::AUTOPILOT
+                                      ? "🔄 Mode switched to AUTO via screen."
+                                      : "🔄 Mode switched to MANUAL via screen.");
         }
 
         // DeepSeek AI Autopilot (paused while a benchmark owns the settings)
