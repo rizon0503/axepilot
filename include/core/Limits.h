@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 
 // Single source of truth for thermal thresholds and safe tuning ranges.
 // Every code path that changes frequency/voltage (AI autopilot, Telegram
@@ -15,6 +16,11 @@ namespace Limits {
 
     // Manual fan speed floor: anything lower risks cooking the miner
     constexpr int FAN_MIN_PERCENT = 25;
+
+    // ArduinoJson v7's elastic JsonDocument allocates roughly proportional to
+    // input size. An abnormally large Telegram/DeepSeek/AxeOS response body
+    // must never reach deserializeJson() — reject it by size first.
+    constexpr size_t MAX_JSON_RESPONSE_BYTES = 8192;
 
     inline bool isValidSetting(int freq, int volt) {
         return freq >= FREQ_MIN && freq <= FREQ_MAX &&

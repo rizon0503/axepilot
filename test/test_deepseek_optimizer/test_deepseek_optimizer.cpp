@@ -148,6 +148,38 @@ void test_optimizer_falls_back_locally_after_three_ai_failures() {
     TEST_ASSERT_TRUE(report.length() > 0);
 }
 
+void test_optimizer_rejects_oversized_response_without_parsing() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    // Otherwise-valid JSON that would apply settings if parsed
+    std::string padding(Limits::MAX_JSON_RESPONSE_BYTES + 1, 'x');
+    mockHttp.postResponse = deepseekReply("{\"frequency\":490,\"coreVoltage\":1100,\"reason\":\"" + padding + "\"}");
+    mockTime.currentTime = 60000;
+
+    std::string report = optimizer.optimize(overheatingData(), g_emptyHistory);
+
+    TEST_ASSERT_EQUAL(0, mockHttp.patchCount);
+    TEST_ASSERT_EQUAL(0, report.length());
+}
+
+void test_ask_question_rejects_oversized_response_without_parsing() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController miner(mockHttp, mockTime, "192.168.0.128");
+    DeepSeekOptimizer optimizer(mockHttp, mockTime, "dummy_key", miner);
+
+    std::string padding(Limits::MAX_JSON_RESPONSE_BYTES + 1, 'x');
+    mockHttp.postResponse = deepseekReply("{\"reply\":\"" + padding + "\",\"frequency\":550,\"coreVoltage\":1150}");
+
+    AiChatResult result = optimizer.askQuestion("set it to 550", overheatingData());
+
+    TEST_ASSERT_EQUAL(0, mockHttp.patchCount);
+    TEST_ASSERT_FALSE(result.settingsApplied);
+}
+
 void test_ask_question_rejects_out_of_range_settings() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -233,6 +265,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_optimizer_idle_when_temperature_is_normal);
     RUN_TEST(test_optimizer_includes_temperature_trend_in_prompt);
     RUN_TEST(test_optimizer_falls_back_locally_after_three_ai_failures);
+    RUN_TEST(test_optimizer_rejects_oversized_response_without_parsing);
+    RUN_TEST(test_ask_question_rejects_oversized_response_without_parsing);
     RUN_TEST(test_ask_question_rejects_out_of_range_settings);
     RUN_TEST(test_ask_question_applies_valid_settings);
     RUN_TEST(test_ask_question_replays_conversation_context);

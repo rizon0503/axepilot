@@ -16,7 +16,7 @@ void BitaxeController::update() {
         std::string url = "http://" + ipAddress + "/api/system/info";
         std::string response = httpClient.get(url);
         
-        if (!response.empty()) {
+        if (!response.empty() && response.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
             JsonDocument doc;
             DeserializationError error = deserializeJson(doc, response);
             
