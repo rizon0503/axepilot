@@ -70,6 +70,22 @@ void test_poll_returns_empty_when_only_foreign_chats() {
     TEST_ASSERT_EQUAL(0, msg.length());
 }
 
+void test_poll_ignores_oversized_response() {
+    MockHttpClient mockHttp;
+    TelegramNotifier notifier(mockHttp, "dummy_token", "12345");
+
+    // Otherwise-valid, would parse to a real command if size weren't capped
+    std::string padding(Limits::MAX_JSON_RESPONSE_BYTES + 1, 'x');
+    mockHttp.getResponse =
+        "{\"ok\":true,\"padding\":\"" + padding + "\",\"result\":["
+        "{\"update_id\":1,\"message\":{\"chat\":{\"id\":12345},\"text\":\"/status\"}}"
+        "]}";
+
+    std::string msg = notifier.pollNewMessage(5000);
+
+    TEST_ASSERT_EQUAL(0, msg.length());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_thermal_alert_triggered_at_max_temp);
@@ -77,5 +93,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_thermal_alert_latches_until_cooled_down);
     RUN_TEST(test_poll_ignores_messages_from_foreign_chats);
     RUN_TEST(test_poll_returns_empty_when_only_foreign_chats);
+    RUN_TEST(test_poll_ignores_oversized_response);
     return UNITY_END();
 }

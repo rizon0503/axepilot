@@ -28,7 +28,7 @@ std::string TelegramNotifier::pollNewMessage(uint32_t currentMillis) {
         
         std::string response = httpClient.get(url);
         
-        if (!response.empty()) {
+        if (!response.empty() && response.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
             JsonDocument doc;
             DeserializationError err = deserializeJson(doc, response);
             if (!err && doc["ok"].as<bool>()) {

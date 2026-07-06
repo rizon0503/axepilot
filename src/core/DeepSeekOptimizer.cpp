@@ -52,7 +52,7 @@ std::string DeepSeekOptimizer::optimize(const BitaxeData& data, const TelemetryH
         std::string headers = "Bearer " + apiKey;
         std::string response = httpClient.post(baseUrl, payload, headers);
 
-        if (!response.empty()) {
+        if (!response.empty() && response.size() <= Limits::MAX_JSON_RESPONSE_BYTES) {
             JsonDocument respDoc;
             if (!deserializeJson(respDoc, response)) {
                 std::string content = respDoc["choices"][0]["message"]["content"] | "{}";
@@ -138,6 +138,10 @@ AiChatResult DeepSeekOptimizer::askQuestion(const std::string& question, const B
 
     if (response.empty()) {
         result.reply = "Failed: Response totally empty.";
+        return result;
+    }
+    if (response.size() > Limits::MAX_JSON_RESPONSE_BYTES) {
+        result.reply = "Failed: Response too large to parse safely.";
         return result;
     }
 

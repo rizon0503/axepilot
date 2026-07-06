@@ -76,6 +76,22 @@ void test_controller_parses_extended_telemetry() {
     TEST_ASSERT_EQUAL(86400, data.uptimeSeconds);
 }
 
+void test_controller_ignores_oversized_response() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
+
+    // Otherwise-valid JSON, but padded well past Limits::MAX_JSON_RESPONSE_BYTES —
+    // must be rejected on size alone, before ArduinoJson ever sees it.
+    std::string padding(Limits::MAX_JSON_RESPONSE_BYTES + 1, 'x');
+    mockHttp.getResponse = "{\"temp\": 99.9, \"padding\": \"" + padding + "\"}";
+    mockTime.currentTime = 5000;
+    controller.update();
+
+    BitaxeData data = controller.getData();
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, data.temperature); // untouched default, update was skipped
+}
+
 void test_controller_rate_limits_polling() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -100,6 +116,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_controller_flags_overheating);
     RUN_TEST(test_controller_treats_zero_temp_as_invalid_reading);
     RUN_TEST(test_controller_parses_extended_telemetry);
+    RUN_TEST(test_controller_ignores_oversized_response);
     RUN_TEST(test_controller_rate_limits_polling);
     return UNITY_END();
 }
