@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include "interfaces/ISettingsStore.h"
 
@@ -7,6 +8,10 @@
 // the cumulative autopilot intervention total (InterventionLog::totalCount()
 // otherwise resets to zero on every boot). Writes are throttled to limit
 // NVS flash wear.
+//
+// begin()/tick() are called from the network task (core 0); the getters
+// are also read from the UI loop (core 1) by the Diagnostics screen (#3) —
+// hence std::atomic instead of plain uint32_t fields.
 class RebootStats {
 public:
     static constexpr uint32_t UPTIME_SAVE_THRESHOLD_SECONDS = 60;
@@ -31,7 +36,7 @@ public:
 
 private:
     ISettingsStore& store;
-    uint32_t resetCountValue = 0;
-    uint32_t uptimeRecordValue = 0;
-    uint32_t lastSavedInterventionTotal = 0;
+    std::atomic<uint32_t> resetCountValue{0};
+    std::atomic<uint32_t> uptimeRecordValue{0};
+    std::atomic<uint32_t> lastSavedInterventionTotal{0};
 };

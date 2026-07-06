@@ -73,7 +73,7 @@ static std::atomic<bool> restartRequested{false};
 // currentMode, so a concurrent direct write from loop() could be clobbered.
 static std::atomic<bool> modeToggleRequested{false};
 
-enum class Screen { MAIN, CONTROLS };
+enum class Screen { MAIN, CONTROLS, DIAGNOSTICS };
 
 // UI-only state (touched exclusively from loop())
 AppState::ScreenPower screenPower;
@@ -153,6 +153,41 @@ static void renderControlsScreen(OperationMode mode) {
                         isAuto ? "AUTO" : "MANUAL", isAuto ? TFT_GREEN : TFT_ORANGE);
     display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
                         ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "RESTART", TFT_RED);
+    display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
+                        ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "DIAG", TFT_BLUE);
+}
+
+// Read-only ESP32 controller diagnostics (heap, WiFi, reset reason/count,
+// intervention total) — the same data the /esp Telegram command exposes,
+// so the device can be debugged without Telegram (#3). Drawn once on
+// entry, like the Controls screen: this is a glance-at-it snapshot, not a
+// live dashboard, so it doesn't need the Main screen's per-line dirty
+// tracking.
+static void renderDiagnosticsScreen() {
+    display.clear();
+    char buf[64];
+
+    uint32_t uptimeSec = sysTime.millis() / 1000;
+    snprintf(buf, sizeof(buf), "Uptime: %02u:%02u:%02u",
+             (unsigned)(uptimeSec / 3600), (unsigned)((uptimeSec % 3600) / 60), (unsigned)(uptimeSec % 60));
+    display.drawText(10, 40, buf, TFT_WHITE);
+
+    snprintf(buf, sizeof(buf), "Reset: %s (x%u)", sysInfo.resetReason(), (unsigned)rebootStats.resetCount());
+    display.drawText(10, 70, buf, TFT_WHITE);
+
+    snprintf(buf, sizeof(buf), "WiFi: %d dBm (drops: %u)", sysInfo.wifiRssi(), (unsigned)sysInfo.wifiReconnectCount());
+    display.drawText(10, 100, buf, TFT_CYAN);
+
+    snprintf(buf, sizeof(buf), "Heap: %u KB (min %u KB)",
+             (unsigned)(sysInfo.freeHeapBytes() / 1024), (unsigned)(sysInfo.minFreeHeapBytes() / 1024));
+    display.drawText(10, 130, buf, TFT_YELLOW);
+
+    snprintf(buf, sizeof(buf), "Max alloc: %u KB", (unsigned)(sysInfo.maxAllocBytes() / 1024));
+    display.drawText(10, 160, buf, TFT_YELLOW);
+
+    snprintf(buf, sizeof(buf), "Interventions: %u", (unsigned)rebootStats.interventionTotal());
+    display.drawText(10, 190, buf, TFT_GREEN);
+
     display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
                         ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "BACK", TFT_BLUE);
 }
@@ -447,9 +482,8 @@ void loop() {
         Action action = ControlsScreen::hitTest(tx, ty);
         switch (action) {
             case Action::SWITCH_SCREEN:
-                currentScreen = Screen::MAIN;
-                resetMainScreenCache();
-                renderMainScreenChrome();
+                currentScreen = Screen::DIAGNOSTICS;
+                renderDiagnosticsScreen();
                 break;
             case Action::TOGGLE_MODE: {
                 OperationMode next = currentMode.load() == OperationMode::AUTOPILOT
@@ -488,6 +522,15 @@ void loop() {
             display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
                                 ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "RESTART", TFT_RED);
         }
+    }
+
+    // Diagnostics has just the one button: its tab, which returns to Main.
+    if (touched && screenAtTouch == Screen::DIAGNOSTICS && touchStarted &&
+        TouchMapper::isWithinRect(tx, ty, ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
+                                   ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h)) {
+        currentScreen = Screen::MAIN;
+        resetMainScreenCache();
+        renderMainScreenChrome();
     }
 
     sysTime.delay(10); // Yield; all periodic work is millis()-gated above
