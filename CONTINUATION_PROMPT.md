@@ -80,3 +80,28 @@ It monitors the Bitaxe via its local HTTP API, provides a touchscreen UI, integr
 
 ## 🚀 How to Continue
 When prompted to add a feature, strictly adhere to the established architecture. If adding UI elements, update `EspDisplay`. If adding Bitaxe commands, use `BitaxeController`. If extending AI logic, carefully modify the DeepSeek prompt without breaking the JSON output format.
+
+---
+
+## 🔄 Workflow for Picking Up Backlog Work
+
+**Step 0 — before touching any code:** run `gh issue list --state open` and present the list to the user as a table (number, title, a 1-2 sentence proposed implementation approach for each). Wait for the user to pick one issue — never start implementing without an explicit choice, and only work on one issue at a time.
+
+Once an issue is chosen, follow this sequence for it — every step is mandatory, none are optional shortcuts:
+
+1. **Branch**: `git checkout -b feature/<issue-number>-<slug>` from `master`.
+2. **TDD, always**: write a failing test first (confirm it's actually red — compile error or failing assertion), then implement until green. A PR for a functional change with no new/updated test is not acceptable.
+3. **Run both suites**: `pio test -e native` (all green) and `pio run -e esp32-cyd` (record the resulting Flash/RAM % so headroom can be tracked over time — don't assume last session's numbers still apply).
+4. **Self-review — mandatory, before merge, regardless of CI status**: `git diff master...branch`, look for real bugs (not cosmetics), and report findings via the `ReportFindings` tool. CI passing is not a substitute for this step — CI does not catch logic bugs. If something is found, fix it in a new commit and document it in a PR comment, then re-review.
+5. **Commit, push, open a PR** (`gh pr create`) with a description covering What / Why / How / Test results (native suite X/X, esp32-cyd build result + Flash/RAM %). No `Co-Authored-By` trailer — commits use the repo's configured git identity only.
+6. **Wait for CI**: `gh pr checks <N>` — build-and-test (native + esp32-cyd) and gitleaks must all be green.
+7. **Merge only after both green CI and the step-4 self-review are done**: `gh pr merge <N> --squash --delete-branch`.
+8. `git checkout master && git pull`; delete any leftover local branch.
+9. **Flash only after merge, never before**: `pio run -e esp32-cyd -t upload --upload-port COM4`.
+10. For UI-facing changes, ask the user to confirm behavior/appearance on the physical device before closing the issue — this can't be verified from code alone.
+11. **Close the issue** on GitHub with a comment summarizing what was done and linking the PR.
+
+**Escalate to the user instead of proceeding solo** when a change:
+- alters the partition table or other low-level flash layout (e.g. enabling OTA requires switching to a `huge_app.csv`-style scheme with no existing OTA slot) — this is an architectural decision;
+- is actually a credential/secret rotation (e.g. Telegram bot token, API keys) — that's a manual action in an external dashboard plus a `include/secrets.h` update, not something to automate;
+- needs physical interaction with the device that a chat session can't perform (e.g. touchscreen calibration).
