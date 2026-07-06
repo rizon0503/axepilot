@@ -464,9 +464,8 @@ void loop() {
                 ControlsScreen::Preset preset = ControlsScreen::presetFor(action);
                 presetFrequency = preset.frequency;
                 presetCoreVoltage = preset.coreVoltage;
-                presetRequested = true;
-                currentMode = OperationMode::MANUAL; // reflect it immediately in the toggle button
-                renderControlsScreen(OperationMode::MANUAL);
+                presetRequested = true; // network task also sets currentMode = MANUAL when it applies this
+                renderControlsScreen(OperationMode::MANUAL); // optimistic — matches what the network task applies next tick
                 break;
             }
             case Action::NONE:
