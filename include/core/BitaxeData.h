@@ -18,6 +18,9 @@ struct BitaxeData {
     uint32_t sharesRejected = 0;
     uint32_t uptimeSeconds = 0; // miner uptime, not ESP uptime
     char bestDiff[16] = "";     // e.g. "43.9M"
+    char stratumURL[64] = "";   // pool hostname, e.g. "public-pool.io"
+    int stratumPort = 0;
+    char stratumUser[96] = ""; // typically "wallet_address.worker_name"
     bool isOverheating = false;
     bool isTooCold = false;
 };

@@ -108,6 +108,29 @@ void test_status_omits_vr_temp_when_unsupported() {
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("VR Temp") == std::string::npos);
 }
 
+void test_status_shows_pool_info_when_reported() {
+    Fixture f;
+    snprintf(f.data.stratumURL, sizeof(f.data.stratumURL), "public-pool.io");
+    f.data.stratumPort = 21496;
+    snprintf(f.data.stratumUser, sizeof(f.data.stratumUser), "bc1qxyz.worker1");
+    OperationMode mode = OperationMode::AUTOPILOT;
+
+    f.router.handle("/status", f.data, mode);
+
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("Pool: public-pool.io:21496 (bc1qxyz.worker1)") != std::string::npos);
+    // Must be appended after the rest of the status, not overwriting it
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("AUTOPILOT") != std::string::npos);
+}
+
+void test_status_omits_pool_info_when_not_configured() {
+    Fixture f; // stratumURL defaults to empty
+    OperationMode mode = OperationMode::AUTOPILOT;
+
+    f.router.handle("/status", f.data, mode);
+
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("Pool:") == std::string::npos);
+}
+
 void test_status_shows_auto_fan_with_rpm_when_percent_is_zero() {
     Fixture f;
     f.data.fanSpeedPercent = 0; // AxeOS autofanspeed mode reports 0%
@@ -309,6 +332,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_status_reports_telemetry);
     RUN_TEST(test_status_shows_vr_temp_when_reported);
     RUN_TEST(test_status_omits_vr_temp_when_unsupported);
+    RUN_TEST(test_status_shows_pool_info_when_reported);
+    RUN_TEST(test_status_omits_pool_info_when_not_configured);
     RUN_TEST(test_status_shows_auto_fan_with_rpm_when_percent_is_zero);
     RUN_TEST(test_esp_reports_system_info);
     RUN_TEST(test_esp_reports_preloaded_reboot_stats);
