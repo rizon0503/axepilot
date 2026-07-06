@@ -7,7 +7,7 @@ The device reads the miner's telemetry over its local HTTP API, renders it on th
 ## Features
 
 - 📟 **CYD screen**: temperature, hashrate, voltage, frequency, power/fan, operation mode; backlight auto-off after 15 s.
-- 🚨 **Emergency throttle from the screen**: any touch instantly drops the miner to a safe 400 MHz / 1000 mV.
+- 🚨 **Emergency throttle from the screen**: tapping the on-screen button drops the miner to a safe 400 MHz / 1000 mV.
 - 🛡️ **SafetyGuard (no cloud)**: at ≥72°C it locally forces safe settings — even if the internet or DeepSeek is down. After 3 failed AI calls while overheating, the same local fallback kicks in.
 - 🤖 **AI autopilot**: on overheating (≥70°C) or underperformance (≤60°C) DeepSeek receives the telemetry plus a 10-minute history with the trend and returns new settings; every value passes strict validation (`Limits.h`).
 - 💬 **Telegram bot**: `/status` (extended stats with GH/W and trend), `/auto`, `/manual`, `/set <freq> <volt>`, `/fan <25-100>|auto`, `/restart`, `/history` (intervention journal), `/bench` (preset benchmark with a GH/W verdict), `/esp` (controller diagnostics), `/help`, plus free-form chat handled by the AI with conversation memory. The bot obeys only the configured chat id.
@@ -58,7 +58,7 @@ networkTask (core 0, FreeRTOS) ── all networking: telemetry, Telegram, DeepS
                                 HTTPClient+TLS, NVS Preferences)
 ```
 
-All logic in `core/` is tested natively (66 Unity test cases): `pio test -e native`. Hardware is mocked through the `interfaces/` layer.
+All logic in `core/` is tested natively (122 Unity test cases): `pio test -e native`. Hardware is mocked through the `interfaces/` layer.
 
 ## Settings safety
 
@@ -68,7 +68,7 @@ Every frequency/voltage change — whether from the AI, the `/set` command or th
 
 - ILI9341 display on SPI (pins in `platformio.ini`, `TFT_eSPI` build flags).
 - XPT2046 touch on a **separate** SPI bus: `SPI.begin(25, 39, 32, 33)` — do not use the built-in `TFT_eSPI` touch.
-- The touch is uncalibrated — any touch triggers the emergency throttle (a deliberate decision, see [#5](https://github.com/rizon0503/axepilot/issues/5)).
+- The touch is calibrated against measured raw XPT2046 corner readings ([#5](https://github.com/rizon0503/axepilot/issues/5)); the emergency throttle only fires when the calibrated touch lands inside its button rectangle.
 
 ## Development
 
