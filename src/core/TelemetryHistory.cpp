@@ -10,7 +10,7 @@ void TelemetryHistory::record(const BitaxeData& data, uint32_t nowMs) {
     }
     lastRecordMs = nowMs;
 
-    samples[head] = {nowMs, data.temperature, data.hashrate};
+    samples[head] = {nowMs, data.temperature, data.hashrate, data.power};
     head = (head + 1) % CAPACITY;
     if (count < CAPACITY) {
         count++;
@@ -58,13 +58,24 @@ float TelemetryHistory::avgHashrate() const {
     return sum / count;
 }
 
+float TelemetryHistory::avgPower() const {
+    if (count == 0) return 0.0f;
+    float sum = 0.0f;
+    for (size_t i = 0; i < count; i++) {
+        sum += samples[(head + CAPACITY - count + i) % CAPACITY].power;
+    }
+    return sum / count;
+}
+
 void TelemetryHistory::summarize(char* buf, size_t bufLen) const {
     if (count < 2) {
         if (bufLen > 0) buf[0] = '\0';
         return;
     }
     float spanMin = (newest().timeMs - oldest().timeMs) / 60000.0f;
+    float avgPow = avgPower();
+    float avgEff = (avgPow > 0.1f) ? (avgHashrate() / avgPow) : 0.0f;
     snprintf(buf, bufLen,
-             " History: temp trend %+.2fC/min over %.1f min, avg temp %.1fC, avg hashrate %.0f GH/s (%u samples).",
-             tempTrendPerMinute(), spanMin, avgTemperature(), avgHashrate(), (unsigned)count);
+             " History: temp trend %+.2fC/min over %.1f min, avg temp %.1fC, avg hashrate %.0f GH/s, avg efficiency %.1f GH/W (%u samples).",
+             tempTrendPerMinute(), spanMin, avgTemperature(), avgHashrate(), avgEff, (unsigned)count);
 }
