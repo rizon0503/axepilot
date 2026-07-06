@@ -29,6 +29,7 @@
 #include "core/RebootStats.h"
 #include "core/Limits.h"
 #include "core/TouchMapper.h"
+#include "core/ControlsScreen.h"
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -60,6 +61,14 @@ static BitaxeData sharedData = {};
 static std::atomic<OperationMode> currentMode{OperationMode::AUTOPILOT};
 static std::atomic<bool> throttleRequested{false}; // set by UI touch, consumed by network task
 static std::atomic<bool> wifiConnected{false};
+// Controls-screen actions: set by UI touch, consumed by the network task
+// (all Bitaxe HTTP calls live there — see networkTask()).
+static std::atomic<bool> presetRequested{false};
+static std::atomic<int> presetFrequency{0};
+static std::atomic<int> presetCoreVoltage{0};
+static std::atomic<bool> restartRequested{false};
+
+enum class Screen { MAIN, CONTROLS };
 
 // UI-only state (touched exclusively from loop())
 uint32_t lastInteractionTime = 0;
@@ -67,6 +76,31 @@ bool isScreenOn = true;
 uint32_t lastUiRefresh = 0;
 uint32_t throttleRestoreAt = 0;  // 0 = button in normal state
 uint32_t ignoreTouchUntil = 0;   // debounce window after waking the screen
+Screen currentScreen = Screen::MAIN;
+uint32_t restartRestoreAt = 0;   // 0 = Restart button in normal state
+
+// Per-line "last drawn" cache for the Main screen so unchanged lines are
+// skipped instead of being repainted (and flickering) every 500ms — see
+// drawIfChanged() below. File-scope (not loop()-local) so switching away to
+// the Controls screen and back can force a full repaint via
+// resetMainScreenCache(): the Controls screen calls display.clear(), which
+// wipes these lines off the physical screen without the cache knowing.
+static char lastTemp[64] = ""; static uint16_t lastTempColor = 0xFFFF;
+static char lastHashrate[64] = ""; static uint16_t lastHashrateColor = 0xFFFF;
+static char lastVolt[64] = ""; static uint16_t lastVoltColor = 0xFFFF;
+static char lastFreq[64] = ""; static uint16_t lastFreqColor = 0xFFFF;
+static char lastPow[64] = ""; static uint16_t lastPowColor = 0xFFFF;
+static char lastMode[64] = ""; static uint16_t lastModeColor = 0xFFFF;
+
+static void resetMainScreenCache() {
+    lastTemp[0] = '\0';
+    lastHashrate[0] = '\0';
+    lastVolt[0] = '\0';
+    lastFreq[0] = '\0';
+    lastPow[0] = '\0';
+    lastMode[0] = '\0';
+    lastUiRefresh = 0; // force an immediate redraw of every line
+}
 
 // drawText() always fillRect()s the row before drawing (see EspDisplay), so
 // that a shorter string never leaves stray characters from the one it
@@ -83,6 +117,38 @@ static void drawIfChanged(int x, int y, const char* text, uint16_t color, char* 
     display.drawText(x, y, text, color);
     snprintf(cache, cacheLen, "%s", text);
     lastColor = color;
+}
+
+// Static chrome for the Main screen: the emergency throttle button plus the
+// tab button that switches to the Controls screen. Drawn once in setup()
+// and again whenever the Controls screen hands control back.
+static void renderMainScreenChrome() {
+    display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
+    display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
+                        ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "CTRL", TFT_BLUE);
+}
+
+// The Controls screen is small and static enough to redraw wholesale
+// instead of tracking per-line diffs like the Main screen does.
+static void renderControlsScreen(OperationMode mode) {
+    display.clear();
+    display.drawButton(ControlsScreen::PRESET_ECO_RECT.x, ControlsScreen::PRESET_ECO_RECT.y,
+                        ControlsScreen::PRESET_ECO_RECT.w, ControlsScreen::PRESET_ECO_RECT.h, "400 MHz", TFT_CYAN);
+    display.drawButton(ControlsScreen::PRESET_BALANCED_RECT.x, ControlsScreen::PRESET_BALANCED_RECT.y,
+                        ControlsScreen::PRESET_BALANCED_RECT.w, ControlsScreen::PRESET_BALANCED_RECT.h, "500 MHz", TFT_CYAN);
+    display.drawButton(ControlsScreen::PRESET_TURBO_RECT.x, ControlsScreen::PRESET_TURBO_RECT.y,
+                        ControlsScreen::PRESET_TURBO_RECT.w, ControlsScreen::PRESET_TURBO_RECT.h, "575 MHz", TFT_CYAN);
+    display.drawButton(ControlsScreen::PRESET_MAX_RECT.x, ControlsScreen::PRESET_MAX_RECT.y,
+                        ControlsScreen::PRESET_MAX_RECT.w, ControlsScreen::PRESET_MAX_RECT.h, "625 MHz", TFT_CYAN);
+
+    bool isAuto = mode == OperationMode::AUTOPILOT;
+    display.drawButton(ControlsScreen::TOGGLE_MODE_RECT.x, ControlsScreen::TOGGLE_MODE_RECT.y,
+                        ControlsScreen::TOGGLE_MODE_RECT.w, ControlsScreen::TOGGLE_MODE_RECT.h,
+                        isAuto ? "AUTO" : "MANUAL", isAuto ? TFT_GREEN : TFT_ORANGE);
+    display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
+                        ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "RESTART", TFT_RED);
+    display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
+                        ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "BACK", TFT_BLUE);
 }
 
 static BitaxeData readSharedData() {
@@ -168,6 +234,18 @@ static void networkTask(void*) {
             notifier.sendMessage("🚨 EMERGENCY THROTTLE TRIGGERED VIA SCREEN 🚨\nMode: MANUAL\nFreq: 400, Volt: 1000");
         }
 
+        // Frequency/voltage preset tapped on the Controls screen
+        if (presetRequested.exchange(false)) {
+            currentMode = OperationMode::MANUAL;
+            controller.applySettings(presetFrequency.load(), presetCoreVoltage.load(), "CYD preset");
+        }
+
+        // Miner restart requested from the Controls screen
+        if (restartRequested.exchange(false)) {
+            controller.restartMiner();
+            notifier.sendMessage("♻️ Miner restart requested via screen. Hashrate will recover in ~1-2 min.");
+        }
+
         // DeepSeek AI Autopilot (paused while a benchmark owns the settings)
         if (currentMode.load() == OperationMode::AUTOPILOT && !benchmark.isRunning()) {
             std::string aiAction = optimizer.optimize(data, history);
@@ -227,8 +305,8 @@ void setup() {
     sysTime.delay(1000);
     display.clear();
 
-    // Draw Throttle Button (Bottom Bar)
-    display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
+    // Draw Throttle Button (Bottom Bar) + Controls-screen tab
+    renderMainScreenChrome();
 
     // Set up Telegram Bot Menu — pointless without connectivity; the network
     // task doesn't repeat this call, but the bot menu isn't safety-critical.
@@ -247,22 +325,13 @@ void setup() {
 void loop() {
     uint32_t now = sysTime.millis();
 
-    // UI Update, throttled to twice a second (snprintf to prevent heap fragmentation)
-    if (lastUiRefresh == 0 || now - lastUiRefresh >= 500) {
+    // UI Update, throttled to twice a second (snprintf to prevent heap fragmentation).
+    // Only the Main screen shows live telemetry; the Controls screen is static.
+    if (currentScreen == Screen::MAIN && (lastUiRefresh == 0 || now - lastUiRefresh >= 500)) {
         lastUiRefresh = now;
         BitaxeData data = readSharedData();
         OperationMode mode = currentMode.load();
         char buf[64];
-
-        // Per-line "last drawn" cache so unchanged lines are skipped instead
-        // of being repainted (and flickering) every 500ms — see
-        // drawIfChanged() above.
-        static char lastTemp[64] = ""; static uint16_t lastTempColor = 0xFFFF;
-        static char lastHashrate[64] = ""; static uint16_t lastHashrateColor = 0xFFFF;
-        static char lastVolt[64] = ""; static uint16_t lastVoltColor = 0xFFFF;
-        static char lastFreq[64] = ""; static uint16_t lastFreqColor = 0xFFFF;
-        static char lastPow[64] = ""; static uint16_t lastPowColor = 0xFFFF;
-        static char lastMode[64] = ""; static uint16_t lastModeColor = 0xFFFF;
 
         snprintf(buf, sizeof(buf), "Temp: %.1f C", data.temperature);
         drawIfChanged(10, 10, buf, data.isOverheating ? TFT_RED : TFT_GREEN, lastTemp, sizeof(lastTemp), lastTempColor);
@@ -322,18 +391,77 @@ void loop() {
         isScreenOn = false;
     }
 
-    if (touched && isScreenOn && throttleRestoreAt == 0 && TouchMapper::isWithinRect(tx, ty, 0, 180, 320, 60)) {
-        // The actual PATCH + Telegram message happen on the network task.
-        throttleRequested = true;
+    if (touched && isScreenOn && currentScreen == Screen::MAIN) {
+        if (throttleRestoreAt == 0 && TouchMapper::isWithinRect(tx, ty, 0, 180, 320, 60)) {
+            // The actual PATCH + Telegram message happen on the network task.
+            throttleRequested = true;
 
-        // Visual feedback; restored non-blockingly after 2 s
-        display.drawButton(0, 180, 320, 60, "THROTTLED!", TFT_ORANGE);
-        throttleRestoreAt = now + 2000;
+            // Visual feedback; restored non-blockingly after 2 s
+            display.drawButton(0, 180, 320, 60, "THROTTLED!", TFT_ORANGE);
+            throttleRestoreAt = now + 2000;
+        } else if (ControlsScreen::hitTestMainScreen(tx, ty) == ControlsScreen::Action::SWITCH_SCREEN) {
+            currentScreen = Screen::CONTROLS;
+            renderControlsScreen(currentMode.load());
+        }
     }
 
     if (throttleRestoreAt != 0 && (int32_t)(now - throttleRestoreAt) >= 0) {
-        display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
+        // Only redraw over the Main screen — nothing to restore if the user
+        // already navigated away to Controls within the 2 s window.
+        if (currentScreen == Screen::MAIN) {
+            display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
+        }
         throttleRestoreAt = 0;
+    }
+
+    if (touched && isScreenOn && currentScreen == Screen::CONTROLS) {
+        using ControlsScreen::Action;
+        Action action = ControlsScreen::hitTest(tx, ty);
+        switch (action) {
+            case Action::SWITCH_SCREEN:
+                currentScreen = Screen::MAIN;
+                resetMainScreenCache();
+                renderMainScreenChrome();
+                break;
+            case Action::TOGGLE_MODE: {
+                OperationMode next = currentMode.load() == OperationMode::AUTOPILOT
+                                          ? OperationMode::MANUAL
+                                          : OperationMode::AUTOPILOT;
+                currentMode = next; // atomic; persisted by the network task
+                renderControlsScreen(next);
+                break;
+            }
+            case Action::RESTART:
+                if (restartRestoreAt == 0) {
+                    restartRequested = true;
+                    display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
+                                        ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "SENT", TFT_ORANGE);
+                    restartRestoreAt = now + 2000;
+                }
+                break;
+            case Action::PRESET_ECO:
+            case Action::PRESET_BALANCED:
+            case Action::PRESET_TURBO:
+            case Action::PRESET_MAX: {
+                ControlsScreen::Preset preset = ControlsScreen::presetFor(action);
+                presetFrequency = preset.frequency;
+                presetCoreVoltage = preset.coreVoltage;
+                presetRequested = true;
+                currentMode = OperationMode::MANUAL; // reflect it immediately in the toggle button
+                renderControlsScreen(OperationMode::MANUAL);
+                break;
+            }
+            case Action::NONE:
+                break;
+        }
+    }
+
+    if (restartRestoreAt != 0 && (int32_t)(now - restartRestoreAt) >= 0) {
+        if (currentScreen == Screen::CONTROLS) {
+            display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
+                                ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "RESTART", TFT_RED);
+        }
+        restartRestoreAt = 0;
     }
 
     sysTime.delay(10); // Yield; all periodic work is millis()-gated above
