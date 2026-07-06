@@ -1,5 +1,6 @@
 #include "hal/EspHttpClient.h"
 #include "hal/EspSystemTime.h"
+#include "hal/RootCerts.h"
 #include "core/ChunkedDecoder.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -32,7 +33,13 @@ constexpr uint16_t TIMEOUT_LLM_MS = 45000;
 std::unique_ptr<WiFiClient> makeClient(const std::string& url) {
     if (url.rfind("https://", 0) == 0) {
         auto secureClient = std::unique_ptr<WiFiClientSecure>(new WiFiClientSecure());
-        secureClient->setInsecure();
+        if (url.rfind("https://api.deepseek.com", 0) == 0) {
+            secureClient->setCACert(RootCerts::AMAZON_ROOT_CA_1);
+        } else {
+            // A user-configured AI_BASE_URL (OpenRouter, self-hosted Ollama,
+            // etc.) can point anywhere — we can't pin a CA we don't know.
+            secureClient->setInsecure();
+        }
         return secureClient;
     }
     return std::unique_ptr<WiFiClient>(new WiFiClient());
@@ -62,7 +69,7 @@ std::string readSimpleResponse(HTTPClient& http, int httpCode) {
 } // namespace
 
 EspHttpClient::EspHttpClient() {
-    telegramClient.setInsecure();
+    telegramClient.setCACert(RootCerts::GODADDY_ROOT_CA_G2);
 }
 
 bool EspHttpClient::isTelegramUrl(const std::string& url) {
