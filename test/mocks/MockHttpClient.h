@@ -15,6 +15,7 @@ public:
     std::string lastPatchUrl;
     std::string lastPatchPayload;
     std::vector<std::string> postUrls; // every POST url, in order
+    std::vector<std::string> postPayloads; // every POST payload, same order as postUrls
 
     int getCount = 0;
     int postCount = 0;
@@ -25,6 +26,17 @@ public:
             if (url.find(urlPart) != std::string::npos) return true;
         }
         return false;
+    }
+
+    // The most recent POST payload sent to a URL containing urlPart — useful
+    // when a single call under test issues more than one POST (e.g. an AI
+    // request followed by relaying the reply via Telegram) and lastPostPayload
+    // alone would only reflect whichever one happened last.
+    std::string lastPostPayloadTo(const std::string& urlPart) const {
+        for (size_t i = postUrls.size(); i-- > 0;) {
+            if (postUrls[i].find(urlPart) != std::string::npos) return postPayloads[i];
+        }
+        return "";
     }
 
     std::string get(const std::string& url) override {
@@ -38,6 +50,7 @@ public:
         lastPostUrl = url;
         lastPostPayload = payload;
         postUrls.push_back(url);
+        postPayloads.push_back(payload);
         return postResponse;
     }
 

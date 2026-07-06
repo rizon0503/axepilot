@@ -285,6 +285,32 @@ void test_history_lists_interventions_after_set() {
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("550 MHz / 1150 mV") != std::string::npos);
 }
 
+void test_why_sends_ai_explanation() {
+    Fixture f;
+    OperationMode mode = OperationMode::AUTOPILOT;
+    f.http.postResponse = deepseekReply("{\"reply\":\"Settings dropped because it got hot recently.\"}");
+
+    f.router.handle("/why", f.data, mode);
+
+    std::string aiRequest = f.http.lastPostPayloadTo("api.deepseek.com");
+    TEST_ASSERT_TRUE(aiRequest.find("Efficiency=") != std::string::npos);
+    TEST_ASSERT_TRUE(aiRequest.find("(none)") != std::string::npos); // no interventions yet
+    // The AI's explanation must actually reach the user
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("Settings dropped because it got hot recently.") != std::string::npos);
+}
+
+void test_why_includes_intervention_journal() {
+    Fixture f;
+    OperationMode mode = OperationMode::AUTOPILOT;
+    f.miner.applySettings(490, 1100, "Autopilot");
+    f.http.postResponse = deepseekReply("{\"reply\":\"Explained.\"}");
+
+    f.router.handle("/why", f.data, mode);
+
+    std::string aiRequest = f.http.lastPostPayloadTo("api.deepseek.com");
+    TEST_ASSERT_TRUE(aiRequest.find("Autopilot: 490 MHz / 1100 mV") != std::string::npos);
+}
+
 void test_bench_start_forces_manual_and_applies_first_preset() {
     Fixture f;
     OperationMode mode = OperationMode::AUTOPILOT;
@@ -346,6 +372,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_restart_posts_to_miner);
     RUN_TEST(test_history_empty_message);
     RUN_TEST(test_history_lists_interventions_after_set);
+    RUN_TEST(test_why_sends_ai_explanation);
+    RUN_TEST(test_why_includes_intervention_journal);
     RUN_TEST(test_bench_start_forces_manual_and_applies_first_preset);
     RUN_TEST(test_bench_status_and_stop);
     RUN_TEST(test_free_text_goes_to_ai_and_mode_change_is_applied);

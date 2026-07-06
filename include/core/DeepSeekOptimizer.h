@@ -19,6 +19,11 @@ public:
     std::string optimize(const BitaxeData& data, const TelemetryHistory& history);
     AiChatResult askQuestion(const std::string& question, const BitaxeData& data);
 
+    // Assembles telemetry, the temperature trend and the intervention
+    // journal into one prompt and asks the AI to explain the current state
+    // in plain English. Read-only — never changes settings or mode.
+    std::string explainState(const BitaxeData& data, const TelemetryHistory& history, const std::string& journal);
+
 private:
     IHttpClient& httpClient;
     ISystemTime& sysTime;

@@ -202,3 +202,64 @@ AiChatResult DeepSeekOptimizer::askQuestion(const std::string& question, const B
 
     return result;
 }
+
+std::string DeepSeekOptimizer::explainState(const BitaxeData& data, const TelemetryHistory& history, const std::string& journal) {
+    JsonDocument doc;
+    doc["model"] = model;
+    doc["max_tokens"] = 250;
+    doc["response_format"]["type"] = "json_object";
+
+    JsonArray messages = doc["messages"].to<JsonArray>();
+    JsonObject sysMsg = messages.add<JsonObject>();
+    sysMsg["role"] = "system";
+    sysMsg["content"] = "You are an AI assistant for Bitaxe Gamma. Explain in plain English, based on the telemetry, temperature trend and intervention journal provided, why the miner's current settings are what they are and what is going on. Do not suggest changes. Output strictly JSON: {\"reply\": \"your explanation in English\"}.";
+
+    JsonObject userMsg = messages.add<JsonObject>();
+    userMsg["role"] = "user";
+
+    float eff = (data.power > 0.1f) ? (data.hashrate / data.power) : 0.0f;
+    char telemetry[300];
+    int written = snprintf(telemetry, sizeof(telemetry),
+             "Current: Temp=%.1f, Freq=%d, Volt=%d, Power=%.1fW, Efficiency=%.1fGH/W.",
+             data.temperature, data.frequency, data.coreVoltage, data.power, eff);
+    if (written > 0 && (size_t)written < sizeof(telemetry)) {
+        history.summarize(telemetry + written, sizeof(telemetry) - written);
+    }
+
+    std::string content = std::string(telemetry) + "\nRecent interventions:\n" + (journal.empty() ? "(none)" : journal);
+    userMsg["content"] = content;
+
+    std::string payload;
+    serializeJson(doc, payload);
+
+    std::string headers = "Bearer " + apiKey;
+    std::string response = httpClient.post(baseUrl, payload, headers);
+
+    if (response.empty()) {
+        return "Failed: Response totally empty.";
+    }
+    if (response.size() > Limits::MAX_JSON_RESPONSE_BYTES) {
+        return "Failed: Response too large to parse safely.";
+    }
+
+    JsonDocument respDoc;
+    DeserializationError err = deserializeJson(respDoc, response);
+    if (err) {
+        return "JSON Parse Error: " + std::string(err.c_str());
+    }
+    if (respDoc["error_http"].is<int>()) {
+        return "HTTP Error: " + respDoc["error_http"].as<std::string>() + " " + respDoc["error_msg"].as<std::string>();
+    }
+    if (respDoc["error"].is<JsonObject>()) {
+        return "API Error: " + respDoc["error"]["message"].as<std::string>();
+    }
+
+    std::string replyContent = respDoc["choices"][0]["message"]["content"] | "{}";
+    JsonDocument contentDoc;
+    DeserializationError parseErr = deserializeJson(contentDoc, replyContent);
+    if (parseErr) {
+        return "AI Format Error: " + std::string(parseErr.c_str());
+    }
+
+    return contentDoc["reply"] | "No explanation available.";
+}

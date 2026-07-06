@@ -100,6 +100,10 @@ void TelegramNotifier::setupCommands() {
     cmd7["command"] = "bench";
     cmd7["description"] = "Benchmark freq/volt presets (~30 min)";
 
+    JsonObject cmd8 = cmds.add<JsonObject>();
+    cmd8["command"] = "why";
+    cmd8["description"] = "AI explains the current state";
+
     std::string payload;
     serializeJson(doc, payload);
     
