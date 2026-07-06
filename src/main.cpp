@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_task_wdt.h>
+#include <esp32-hal-log.h>
 #include <atomic>
 #include <cstring>
 #include "secrets.h"
@@ -95,6 +96,13 @@ static char lastVolt[64] = ""; static uint16_t lastVoltColor = 0xFFFF;
 static char lastFreq[64] = ""; static uint16_t lastFreqColor = 0xFFFF;
 static char lastPow[64] = ""; static uint16_t lastPowColor = 0xFFFF;
 static char lastMode[64] = ""; static uint16_t lastModeColor = 0xFFFF;
+
+// Avoids WiFi.localIP().toString() (Arduino String) on the network task's
+// hot loop — snprintf into a caller buffer instead, per this project's
+// no-String-in-hot-paths rule.
+static void formatIp(char* buf, size_t len, IPAddress ip) {
+    snprintf(buf, len, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
 
 static void resetMainScreenCache() {
     lastTemp[0] = '\0';
@@ -205,6 +213,7 @@ static void networkTask(void*) {
     // A hung TLS socket must reboot the controller, not brick it. 180 s
     // comfortably covers back-to-back 45 s LLM calls.
     esp_task_wdt_add(NULL);
+    log_i("Network task started, watchdog armed (180s timeout)");
 
     OperationMode persistedMode = currentMode.load();
     for (;;) {
@@ -212,6 +221,7 @@ static void networkTask(void*) {
         if (WiFi.status() != WL_CONNECTED) {
             if (wifiConnected.load()) {
                 sysInfo.noteWifiReconnect(); // count each connection loss once
+                log_w("WiFi disconnected, reconnecting...");
             }
             wifiConnected = false;
             WiFi.disconnect();
@@ -221,9 +231,13 @@ static void networkTask(void*) {
                 vTaskDelay(pdMS_TO_TICKS(100));
             }
             if (WiFi.status() != WL_CONNECTED) {
+                log_w("WiFi reconnect attempt failed, retrying (drops so far: %u)", (unsigned)sysInfo.wifiReconnectCount());
                 vTaskDelay(pdMS_TO_TICKS(1000));
                 continue; // Skip API calls until reconnected
             }
+            char ipStr[16];
+            formatIp(ipStr, sizeof(ipStr), WiFi.localIP());
+            log_i("WiFi reconnected: %s", ipStr);
         }
         // Start (or restart) NTP sync exactly once per "became connected"
         // transition — covers the initial connect, a connect that happens
@@ -242,7 +256,15 @@ static void networkTask(void*) {
         portEXIT_CRITICAL(&dataMux);
         history.record(data, sysTime.millis());
         dailyStats.record(data, sysTime.millis());
+
+        uint32_t lifetimeInterventionsBefore = rebootStats.interventionTotal();
         rebootStats.tick(sysTime.millis() / 1000, controller.interventions().totalCount());
+        uint32_t lifetimeInterventionsNow = rebootStats.interventionTotal();
+        if (lifetimeInterventionsNow != lifetimeInterventionsBefore) {
+            char journal[768];
+            controller.interventions().format(journal, sizeof(journal), sysTime.millis());
+            log_i("Intervention recorded (lifetime total: %u):\n%s", (unsigned)lifetimeInterventionsNow, journal);
+        }
 
         std::string digest = dailyStats.tick(sysTime.millis(), sysTime.epochSeconds(), controller.interventions().totalCount());
         if (!digest.empty()) {
@@ -339,6 +361,7 @@ void setup() {
     esp_task_wdt_init(180, true); // panic + reboot if the network task hangs
     currentMode = settingsStore.loadMode(OperationMode::AUTOPILOT);
     rebootStats.begin();
+    log_i("Boot: reset reason=%s, total resets=%u", sysInfo.resetReason(), (unsigned)rebootStats.resetCount());
     display.init();
     display.drawText(10, 10, "Connecting to WiFi...", TFT_WHITE);
 
@@ -346,14 +369,17 @@ void setup() {
     uint32_t wifiWaitStart = sysTime.millis();
     while (WiFi.status() != WL_CONNECTED && sysTime.millis() - wifiWaitStart < WIFI_SETUP_TIMEOUT_MS) {
         sysTime.delay(500);
-        Serial.print(".");
     }
 
     display.clear();
     if (WiFi.status() == WL_CONNECTED) {
         wifiConnected = true;
+        char ipStr[16];
+        formatIp(ipStr, sizeof(ipStr), WiFi.localIP());
+        log_i("WiFi connected: %s (RSSI %d dBm)", ipStr, sysInfo.wifiRssi());
         display.drawText(10, 10, "WiFi Connected!", TFT_GREEN);
     } else {
+        log_w("WiFi connect timed out after %ums, retrying in background", (unsigned)WIFI_SETUP_TIMEOUT_MS);
         display.drawText(10, 10, "WiFi not found.", TFT_RED);
         display.drawText(10, 40, "Retrying in background...", TFT_WHITE);
     }

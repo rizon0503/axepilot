@@ -4,6 +4,7 @@
 #include "core/ChunkedDecoder.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp32-hal-log.h>
 #include <memory>
 
 namespace {
@@ -52,6 +53,7 @@ void beginRequest(HTTPClient& http, WiFiClient& client, const std::string& url, 
 }
 
 std::string errorJson(int httpCode, const char* msg) {
+    log_w("HTTP error: code=%d msg=%s", httpCode, msg);
     return "{\"error_http\": " + std::to_string(httpCode) + ", \"error_msg\": \"" + msg + "\"}";
 }
 
