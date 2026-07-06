@@ -78,6 +78,7 @@ uint32_t throttleRestoreAt = 0;  // 0 = button in normal state
 uint32_t ignoreTouchUntil = 0;   // debounce window after waking the screen
 Screen currentScreen = Screen::MAIN;
 uint32_t restartRestoreAt = 0;   // 0 = Restart button in normal state
+bool touchWasDown = false;       // edge-detects Controls-screen taps; see touchStarted in loop()
 
 // Per-line "last drawn" cache for the Main screen so unchanged lines are
 // skipped instead of being repainted (and flickering) every 500ms — see
@@ -391,6 +392,14 @@ void loop() {
         isScreenOn = false;
     }
 
+    // Controls-screen actions must fire once per physical tap, not once per
+    // loop() iteration a tap happens to overlap (loop() runs every ~10ms, so
+    // a single ~100-300ms tap would otherwise be dispatched many times —
+    // e.g. toggling AUTO/MANUAL back and forth an indeterminate number of
+    // times depending on exact tap duration).
+    bool touchStarted = touched && !touchWasDown;
+    touchWasDown = touched;
+
     if (touched && isScreenOn && currentScreen == Screen::MAIN) {
         if (throttleRestoreAt == 0 && TouchMapper::isWithinRect(tx, ty, 0, 180, 320, 60)) {
             // The actual PATCH + Telegram message happen on the network task.
@@ -399,7 +408,7 @@ void loop() {
             // Visual feedback; restored non-blockingly after 2 s
             display.drawButton(0, 180, 320, 60, "THROTTLED!", TFT_ORANGE);
             throttleRestoreAt = now + 2000;
-        } else if (ControlsScreen::hitTestMainScreen(tx, ty) == ControlsScreen::Action::SWITCH_SCREEN) {
+        } else if (touchStarted && ControlsScreen::hitTestMainScreen(tx, ty) == ControlsScreen::Action::SWITCH_SCREEN) {
             currentScreen = Screen::CONTROLS;
             renderControlsScreen(currentMode.load());
         }
@@ -414,7 +423,7 @@ void loop() {
         throttleRestoreAt = 0;
     }
 
-    if (touched && isScreenOn && currentScreen == Screen::CONTROLS) {
+    if (touched && isScreenOn && currentScreen == Screen::CONTROLS && touchStarted) {
         using ControlsScreen::Action;
         Action action = ControlsScreen::hitTest(tx, ty);
         switch (action) {
