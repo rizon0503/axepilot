@@ -7,9 +7,13 @@ class MockDisplay : public IDisplay {
 public:
     struct TextCall { int x; int y; std::string text; uint16_t color; };
     struct ButtonCall { int x; int y; int w; int h; std::string label; uint16_t color; };
+    struct LineCall { int x0; int y0; int x1; int y1; uint16_t color; };
+    struct FillRectCall { int x; int y; int w; int h; uint16_t color; };
 
     std::vector<TextCall> textCalls;
     std::vector<ButtonCall> buttonCalls;
+    std::vector<LineCall> lineCalls;
+    std::vector<FillRectCall> fillRectCalls;
     int clearCalls = 0;
     bool backlightOn = true;
 
@@ -21,6 +25,7 @@ public:
         clearCalls++;
         textCalls.clear();
         buttonCalls.clear();
+        lineCalls.clear();
     }
 
     void drawText(int x, int y, const std::string& text, uint16_t color) override {
@@ -29,6 +34,16 @@ public:
 
     void drawButton(int x, int y, int w, int h, const std::string& label, uint16_t color) override {
         buttonCalls.push_back({x, y, w, h, label, color});
+    }
+
+    void drawLine(int x0, int y0, int x1, int y1, uint16_t color) override {
+        lineCalls.push_back({x0, y0, x1, y1, color});
+    }
+
+    // Does NOT clear the other call vectors — unlike clear(), this only
+    // erases a small region (e.g. a sparkline), not the whole screen.
+    void fillRect(int x, int y, int w, int h, uint16_t color) override {
+        fillRectCalls.push_back({x, y, w, h, color});
     }
 
     bool touched(int&, int&) override { return false; }

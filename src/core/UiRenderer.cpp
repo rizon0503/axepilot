@@ -6,6 +6,7 @@
 // Mirrors TFT_eSPI's TFT_* macros (RGB565) without depending on the
 // hardware-only TFT_eSPI header, keeping this file natively testable.
 namespace {
+constexpr uint16_t COLOR_BLACK = 0x0000;
 constexpr uint16_t COLOR_RED = 0xF800;
 constexpr uint16_t COLOR_GREEN = 0x07E0;
 constexpr uint16_t COLOR_WHITE = 0xFFFF;
@@ -18,6 +19,12 @@ constexpr uint16_t COLOR_BLUE = 0x001F;
 // anywhere (unlike ControlsScreen's rects) — main.cpp's touch hit-test
 // duplicates these same four numbers, matching pre-existing behavior.
 constexpr int THROTTLE_X = 0, THROTTLE_Y = 180, THROTTLE_W = 320, THROTTLE_H = 60;
+
+// Sparkline row (#2): reuses the same y-slot the Mode line used to occupy
+// before Volt+Freq were combined into one row to make room. Split into two
+// halves with a small gap between them.
+constexpr int SPARK_Y = 125, SPARK_H = 24;
+constexpr int TEMP_SPARK_X = 10, HASH_SPARK_X = 170, SPARK_W = 140;
 } // namespace
 
 UiRenderer::UiRenderer(IDisplay& display) : display(display) {}
@@ -31,7 +38,66 @@ void UiRenderer::drawIfChanged(int x, int y, const char* text, uint16_t color, L
     cache.color = color;
 }
 
-void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, bool wifiOk) {
+void UiRenderer::drawSparklineLine(int x, int y, int w, int h, const float* values, size_t count, uint16_t color) {
+    if (count < 2) {
+        return; // nothing to connect
+    }
+    float minV = values[0];
+    float maxV = values[0];
+    for (size_t i = 1; i < count; i++) {
+        if (values[i] < minV) minV = values[i];
+        if (values[i] > maxV) maxV = values[i];
+    }
+    float range = maxV - minV;
+
+    auto yFor = [&](float v) -> int {
+        if (range < 0.001f) {
+            return y + h / 2; // flat data: draw a level line instead of dividing by ~0
+        }
+        float normalized = (v - minV) / range; // 0 (min) .. 1 (max)
+        return y + (h - 1) - (int)(normalized * (h - 1));
+    };
+
+    for (size_t i = 0; i + 1 < count; i++) {
+        int x0 = x + (int)((long)i * (w - 1) / (count - 1));
+        int x1 = x + (int)((long)(i + 1) * (w - 1) / (count - 1));
+        display.drawLine(x0, yFor(values[i]), x1, yFor(values[i + 1]), color);
+    }
+}
+
+void UiRenderer::renderSparklines(const float* tempHistory, size_t tempHistoryCount,
+                                   const float* hashHistory, size_t hashHistoryCount) {
+    // Clamp defensively: lastTempSpark_/lastHashSpark_ are fixed
+    // MAX_SPARKLINE_SAMPLES-sized buffers, so an over-large count here
+    // would overflow them via memcpy below. Currently unreachable (the
+    // only caller passes at most TelemetryHistory::CAPACITY == 20), but a
+    // buffer-safety bound isn't something to skip just because it's not
+    // hit today.
+    if (tempHistoryCount > MAX_SPARKLINE_SAMPLES) tempHistoryCount = MAX_SPARKLINE_SAMPLES;
+    if (hashHistoryCount > MAX_SPARKLINE_SAMPLES) hashHistoryCount = MAX_SPARKLINE_SAMPLES;
+
+    bool tempChanged = tempHistoryCount != lastTempSparkCount_ ||
+                        memcmp(tempHistory, lastTempSpark_, tempHistoryCount * sizeof(float)) != 0;
+    if (tempChanged) {
+        display.fillRect(TEMP_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, COLOR_BLACK);
+        drawSparklineLine(TEMP_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, tempHistory, tempHistoryCount, COLOR_GREEN);
+        memcpy(lastTempSpark_, tempHistory, tempHistoryCount * sizeof(float));
+        lastTempSparkCount_ = tempHistoryCount;
+    }
+
+    bool hashChanged = hashHistoryCount != lastHashSparkCount_ ||
+                        memcmp(hashHistory, lastHashSpark_, hashHistoryCount * sizeof(float)) != 0;
+    if (hashChanged) {
+        display.fillRect(HASH_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, COLOR_BLACK);
+        drawSparklineLine(HASH_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, hashHistory, hashHistoryCount, COLOR_WHITE);
+        memcpy(lastHashSpark_, hashHistory, hashHistoryCount * sizeof(float));
+        lastHashSparkCount_ = hashHistoryCount;
+    }
+}
+
+void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, bool wifiOk,
+                                  const float* tempHistory, size_t tempHistoryCount,
+                                  const float* hashHistory, size_t hashHistoryCount) {
     char buf[64];
 
     snprintf(buf, sizeof(buf), "Temp: %.1f C", data.temperature);
@@ -45,11 +111,19 @@ void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, boo
     }
     drawIfChanged(10, 40, buf, COLOR_WHITE, hashrateCache_);
 
-    snprintf(buf, sizeof(buf), "Volt: %d mV", data.coreVoltage);
-    drawIfChanged(10, 70, buf, COLOR_YELLOW, voltCache_);
+    // Volt+Freq combined into one row (#2) to make room for the sparkline
+    // row below, which used to be the Mode row's slot.
+    snprintf(buf, sizeof(buf), "V:%dmV F:%dMHz", data.coreVoltage, data.frequency);
+    drawIfChanged(10, 70, buf, COLOR_YELLOW, voltFreqCache_);
 
-    snprintf(buf, sizeof(buf), "Freq: %d MHz", data.frequency);
-    drawIfChanged(10, 100, buf, COLOR_CYAN, freqCache_);
+    if (!wifiOk) {
+        drawIfChanged(10, 100, "Wi-Fi reconnecting...", COLOR_RED, modeCache_);
+    } else {
+        snprintf(buf, sizeof(buf), "Mode: %s", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
+        drawIfChanged(10, 100, buf, mode == OperationMode::AUTOPILOT ? COLOR_GREEN : COLOR_ORANGE, modeCache_);
+    }
+
+    renderSparklines(tempHistory, tempHistoryCount, hashHistory, hashHistoryCount);
 
     // In autofanspeed mode AxeOS reports fanspeed=0%, so RPM is the
     // meaningful number; show the percent only when it is set manually.
@@ -59,25 +133,16 @@ void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, boo
         snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %drpm", data.power, data.fanRpm);
     }
     drawIfChanged(10, 155, buf, COLOR_WHITE, powCache_);
-
-    // y=129 (not 130): Font 4 is 26px tall, and the row below sits at
-    // y=155 — at y=130 this row's fillRect would clip one pixel off the
-    // top of that row's text.
-    if (!wifiOk) {
-        drawIfChanged(10, 129, "Wi-Fi reconnecting...", COLOR_RED, modeCache_);
-    } else {
-        snprintf(buf, sizeof(buf), "Mode: %s", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
-        drawIfChanged(10, 129, buf, mode == OperationMode::AUTOPILOT ? COLOR_GREEN : COLOR_ORANGE, modeCache_);
-    }
 }
 
 void UiRenderer::resetTelemetryCache() {
     tempCache_.text[0] = '\0';
     hashrateCache_.text[0] = '\0';
-    voltCache_.text[0] = '\0';
-    freqCache_.text[0] = '\0';
-    powCache_.text[0] = '\0';
+    voltFreqCache_.text[0] = '\0';
     modeCache_.text[0] = '\0';
+    powCache_.text[0] = '\0';
+    lastTempSparkCount_ = 0;
+    lastHashSparkCount_ = 0;
 }
 
 void UiRenderer::renderThrottleButton(ThrottleState state) {

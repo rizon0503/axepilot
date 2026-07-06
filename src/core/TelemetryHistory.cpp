@@ -79,3 +79,14 @@ void TelemetryHistory::summarize(char* buf, size_t bufLen) const {
              " History: temp trend %+.2fC/min over %.1f min, avg temp %.1fC, avg hashrate %.0f GH/s, avg efficiency %.1f GH/W (%u samples).",
              tempTrendPerMinute(), spanMin, avgTemperature(), avgHashrate(), avgEff, (unsigned)count);
 }
+
+size_t TelemetryHistory::copySparklineData(float* outTemps, float* outHashrates, size_t maxCount) const {
+    size_t n = (count < maxCount) ? count : maxCount;
+    size_t skip = count - n; // if the buffer is smaller than history, keep the newest samples
+    for (size_t i = 0; i < n; i++) {
+        const Sample& s = samples[(head + CAPACITY - count + skip + i) % CAPACITY];
+        outTemps[i] = s.temperature;
+        outHashrates[i] = s.hashrate;
+    }
+    return n;
+}
