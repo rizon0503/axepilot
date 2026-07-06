@@ -29,6 +29,7 @@
 #include "core/RebootStats.h"
 #include "core/Limits.h"
 #include "core/TouchMapper.h"
+#include "core/AppState.h"
 #include "core/ControlsScreen.h"
 
 const char* ssid = WIFI_SSID;
@@ -75,13 +76,11 @@ static std::atomic<bool> modeToggleRequested{false};
 enum class Screen { MAIN, CONTROLS };
 
 // UI-only state (touched exclusively from loop())
-uint32_t lastInteractionTime = 0;
-bool isScreenOn = true;
+AppState::ScreenPower screenPower;
 uint32_t lastUiRefresh = 0;
-uint32_t throttleRestoreAt = 0;  // 0 = button in normal state
-uint32_t ignoreTouchUntil = 0;   // debounce window after waking the screen
+AppState::RestoreTimer throttleRestore;
+AppState::RestoreTimer restartRestore;
 Screen currentScreen = Screen::MAIN;
-uint32_t restartRestoreAt = 0;   // 0 = Restart button in normal state
 bool touchWasDown = false;       // edge-detects Controls-screen taps; see touchStarted in loop()
 
 // Per-line "last drawn" cache for the Main screen so unchanged lines are
@@ -336,7 +335,7 @@ void setup() {
     if (WiFi.status() == WL_CONNECTED) {
         notifier.setupCommands();
     }
-    lastInteractionTime = sysTime.millis();
+    screenPower.onTouch(true, sysTime.millis()); // primes the idle-timeout clock to "now"
 
     // Networking on core 0 (where the WiFi stack already lives); the Arduino
     // loop() with UI/touch stays on core 1. TLS needs a generous stack.
@@ -393,23 +392,15 @@ void loop() {
 
     // Emergency Throttle Button & Screen Wakeup
     int tx, ty;
-    bool touched = display.touched(tx, ty);
-
-    if (touched) {
-        lastInteractionTime = now;
-        if (!isScreenOn) {
-            display.setBacklight(true);
-            isScreenOn = true;
-            ignoreTouchUntil = now + 300; // Debounce to prevent accidental clicks when waking up
-            touched = false; // Ignore touch this frame for UI logic
-        } else if ((int32_t)(now - ignoreTouchUntil) < 0) {
-            touched = false; // Still inside the wake-up debounce window
-        }
+    bool touchedRaw = display.touched(tx, ty);
+    // false while waking up or within the post-wake debounce window; see
+    // AppState::ScreenPower. Implies isOn() whenever it returns true.
+    bool touched = screenPower.onTouch(touchedRaw, now);
+    if (screenPower.justWoke()) {
+        display.setBacklight(true);
     }
-
-    if (isScreenOn && (now - lastInteractionTime > 15000)) {
+    if (screenPower.tick(now)) {
         display.setBacklight(false);
-        isScreenOn = false;
     }
 
     // Controls-screen actions must fire once per physical tap, not once per
@@ -429,30 +420,29 @@ void loop() {
     // painted telemetry text over.
     const Screen screenAtTouch = currentScreen;
 
-    if (touched && isScreenOn && screenAtTouch == Screen::MAIN) {
-        if (throttleRestoreAt == 0 && TouchMapper::isWithinRect(tx, ty, 0, 180, 320, 60)) {
+    if (touched && screenAtTouch == Screen::MAIN) {
+        if (!throttleRestore.isPending() && TouchMapper::isWithinRect(tx, ty, 0, 180, 320, 60)) {
             // The actual PATCH + Telegram message happen on the network task.
             throttleRequested = true;
 
             // Visual feedback; restored non-blockingly after 2 s
             display.drawButton(0, 180, 320, 60, "THROTTLED!", TFT_ORANGE);
-            throttleRestoreAt = now + 2000;
+            throttleRestore.trigger(now, 2000);
         } else if (touchStarted && ControlsScreen::hitTestMainScreen(tx, ty) == ControlsScreen::Action::SWITCH_SCREEN) {
             currentScreen = Screen::CONTROLS;
             renderControlsScreen(currentMode.load());
         }
     }
 
-    if (throttleRestoreAt != 0 && (int32_t)(now - throttleRestoreAt) >= 0) {
+    if (throttleRestore.tick(now)) {
         // Only redraw over the Main screen — nothing to restore if the user
         // already navigated away to Controls within the 2 s window.
         if (currentScreen == Screen::MAIN) {
             display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
         }
-        throttleRestoreAt = 0;
     }
 
-    if (touched && isScreenOn && screenAtTouch == Screen::CONTROLS && touchStarted) {
+    if (touched && screenAtTouch == Screen::CONTROLS && touchStarted) {
         using ControlsScreen::Action;
         Action action = ControlsScreen::hitTest(tx, ty);
         switch (action) {
@@ -470,11 +460,11 @@ void loop() {
                 break;
             }
             case Action::RESTART:
-                if (restartRestoreAt == 0) {
+                if (!restartRestore.isPending()) {
                     restartRequested = true;
                     display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
                                         ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "SENT", TFT_ORANGE);
-                    restartRestoreAt = now + 2000;
+                    restartRestore.trigger(now, 2000);
                 }
                 break;
             case Action::PRESET_ECO:
@@ -493,12 +483,11 @@ void loop() {
         }
     }
 
-    if (restartRestoreAt != 0 && (int32_t)(now - restartRestoreAt) >= 0) {
+    if (restartRestore.tick(now)) {
         if (currentScreen == Screen::CONTROLS) {
             display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
                                 ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "RESTART", TFT_RED);
         }
-        restartRestoreAt = 0;
     }
 
     sysTime.delay(10); // Yield; all periodic work is millis()-gated above
