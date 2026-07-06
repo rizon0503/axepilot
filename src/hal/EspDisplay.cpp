@@ -20,13 +20,40 @@ void EspDisplay::clear() {
     tft.fillScreen(TFT_BLACK);
 }
 
+int& EspDisplay::widthSlotFor(int x, int y) {
+    for (size_t i = 0; i < lineExtentCount; i++) {
+        if (lineExtents[i].x == x && lineExtents[i].y == y) {
+            return lineExtents[i].width;
+        }
+    }
+    if (lineExtentCount < MAX_TRACKED_LINES) {
+        lineExtents[lineExtentCount] = {x, y, 0};
+        return lineExtents[lineExtentCount++].width;
+    }
+    // Ran out of tracked slots (shouldn't happen with this project's fixed
+    // UI layout) — fall back to "0 previously", so the clear region is at
+    // least as wide as the new text (still correct, just not minimal).
+    static int overflowWidth = 0;
+    overflowWidth = 0;
+    return overflowWidth;
+}
+
 void EspDisplay::drawText(int x, int y, const std::string& text, uint16_t color) {
-    // Clear the full row before drawing so a shorter string never leaves
-    // stray characters from whatever longer text was there before —
-    // padding the string with trailing spaces was the previous approach.
-    tft.fillRect(x, y, tft.width() - x, tft.fontHeight(4), TFT_BLACK);
+    // Clear only as wide as the wider of the old and new text — enough to
+    // guarantee a shorter string never leaves stray characters from
+    // whatever longer text was there before (padding with trailing spaces
+    // was the previous approach), without blanking the full remaining row
+    // every time, which visibly flickers for lines that change often.
+    int newWidth = tft.textWidth(text.c_str(), 4);
+    int& lastWidth = widthSlotFor(x, y);
+    int clearWidth = (lastWidth > newWidth) ? lastWidth : newWidth;
+    int maxWidth = tft.width() - x;
+    if (clearWidth > maxWidth) clearWidth = maxWidth;
+
+    tft.fillRect(x, y, clearWidth, tft.fontHeight(4), TFT_BLACK);
     tft.setTextColor(color, TFT_BLACK);
     tft.drawString(text.c_str(), x, y, 4); // Font 4
+    lastWidth = newWidth;
 }
 
 void EspDisplay::drawButton(int x, int y, int w, int h, const std::string& label, uint16_t color) {
