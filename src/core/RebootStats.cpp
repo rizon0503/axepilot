@@ -8,6 +8,8 @@ void RebootStats::begin() {
 
     uptimeRecordValue = store.loadUptimeRecordSeconds();
     lastSavedInterventionTotal = store.loadInterventionTotal();
+    interventionBaselineAtBoot = lastSavedInterventionTotal;
+    lastSeenCurrentBootTotal = 0;
 }
 
 void RebootStats::tick(uint32_t uptimeSeconds, uint32_t currentInterventionTotal) {
@@ -15,8 +17,9 @@ void RebootStats::tick(uint32_t uptimeSeconds, uint32_t currentInterventionTotal
         uptimeRecordValue = uptimeSeconds;
         store.saveUptimeRecordSeconds(uptimeRecordValue);
     }
-    if (currentInterventionTotal != lastSavedInterventionTotal) {
-        lastSavedInterventionTotal = currentInterventionTotal;
+    if (currentInterventionTotal != lastSeenCurrentBootTotal) {
+        lastSeenCurrentBootTotal = currentInterventionTotal;
+        lastSavedInterventionTotal = interventionBaselineAtBoot + currentInterventionTotal;
         store.saveInterventionTotal(lastSavedInterventionTotal);
     }
 }
