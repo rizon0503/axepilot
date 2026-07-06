@@ -1,9 +1,27 @@
 #include "hal/EspHttpClient.h"
+#include "hal/EspSystemTime.h"
+#include "core/ChunkedDecoder.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <memory>
 
 namespace {
+
+// Adapts an Arduino WiFiClient/HTTPClient pair to the hardware-independent
+// IByteStream interface so ChunkedDecoder (core/, natively tested) can read
+// the response body without knowing about WiFiClient at all.
+class EspByteStream : public IByteStream {
+public:
+    EspByteStream(WiFiClient* client, HTTPClient* http) : client(client), http(http) {}
+    int available() override { return client->available(); }
+    int read() override { return client->read(); }
+    size_t readBytes(char* buf, size_t len) override { return client->readBytes(buf, len); }
+    bool connected() override { return http->connected(); }
+
+private:
+    WiFiClient* client;
+    HTTPClient* http;
+};
 
 // LLM APIs (DeepSeek) can take a long time to answer; local Bitaxe and
 // Telegram getUpdates?timeout=0 respond quickly, so a shorter timeout keeps
@@ -100,54 +118,23 @@ std::string EspHttpClient::post(const std::string& url, const std::string& paylo
     if (httpCode == 200) {
         // Read the body manually: HTTPClient::getString() truncates or drops
         // chunked transfer encoded bodies that LLM APIs commonly send.
-        String res = "";
         WiFiClient* stream = http.getStreamPtr();
         stream->setTimeout(TIMEOUT_LLM_MS);
 
+        EspByteStream byteStream(stream, &http);
+        EspSystemTime sysTime;
+        std::string body;
         bool isChunked = (http.getSize() == -1);
+        bool ok = isChunked
+            ? ChunkedDecoder::decode(byteStream, sysTime, TIMEOUT_LLM_MS, body)
+            : ChunkedDecoder::readExact(byteStream, sysTime, TIMEOUT_LLM_MS, (size_t)http.getSize(), body);
 
-        if (isChunked) {
-            while (http.connected()) {
-                String hexLenStr = stream->readStringUntil('\n');
-                hexLenStr.trim();
-                if (hexLenStr.length() == 0) continue;
-
-                long chunkLen = strtol(hexLenStr.c_str(), NULL, 16);
-                if (chunkLen == 0) break;
-
-                size_t readSoFar = 0;
-                unsigned long start = millis();
-                while (readSoFar < chunkLen && http.connected()) {
-                    if (stream->available()) {
-                        res += (char)stream->read();
-                        readSoFar++;
-                        start = millis();
-                    } else {
-                        delay(5);
-                        if (millis() - start > TIMEOUT_LLM_MS) break;
-                    }
-                }
-                stream->readStringUntil('\n'); // trailing \r\n
-            }
-        } else {
-            int len = http.getSize();
-            unsigned long start = millis();
-            while (http.connected() && len > 0) {
-                if (stream->available()) {
-                    res += (char)stream->read();
-                    len--;
-                    start = millis();
-                } else {
-                    delay(5);
-                    if (millis() - start > TIMEOUT_LLM_MS) break;
-                }
-            }
-        }
-
-        if (res.length() == 0) {
+        if (!ok) {
+            response = errorJson(200, "ManualReadFailed");
+        } else if (body.empty()) {
             response = errorJson(200, "EmptyBody_ManualRead");
         } else {
-            response = res.c_str();
+            response = body;
         }
     } else {
         response = readSimpleResponse(http, httpCode);
