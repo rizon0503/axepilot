@@ -39,4 +39,15 @@ private:
     std::atomic<uint32_t> resetCountValue{0};
     std::atomic<uint32_t> uptimeRecordValue{0};
     std::atomic<uint32_t> lastSavedInterventionTotal{0};
+
+    // InterventionLog::totalCount() (tick()'s currentInterventionTotal
+    // argument) is in-memory only and always restarts at 0 after a reboot.
+    // The lifetime total therefore has to be reconstructed as "whatever was
+    // persisted before this boot" plus "however many happened this boot" —
+    // interventionBaselineAtBoot is the former, set once in begin(); these
+    // two are only ever touched from tick()/begin(), always on the network
+    // task, so plain uint32_t (unlike lastSavedInterventionTotal above,
+    // which the Diagnostics screen also reads from the UI loop).
+    uint32_t interventionBaselineAtBoot = 0;
+    uint32_t lastSeenCurrentBootTotal = 0;
 };
