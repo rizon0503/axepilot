@@ -34,25 +34,38 @@ int* EspDisplay::widthSlotFor(int x, int y) {
 }
 
 void EspDisplay::drawText(int x, int y, const std::string& text, uint16_t color) {
-    // Clear only as wide as the wider of the old and new text — enough to
-    // guarantee a shorter string never leaves stray characters from
-    // whatever longer text was there before (padding with trailing spaces
-    // was the previous approach), without blanking the full remaining row
-    // every time, which visibly flickers for lines that change often.
+    // setTextColor(color, TFT_BLACK) below already makes drawString() erase
+    // behind every glyph of the NEW text as it draws it (an opaque
+    // background, one glyph at a time — no separate blanking step, so no
+    // visible flash). That alone only covers the pixel columns the new
+    // text occupies, though: if the new string is shorter than whatever
+    // was drawn here last time, the leftover tail of the old string would
+    // stay on screen. So fillRect() only the trailing sliver beyond the
+    // new text's width — the minimum needed to avoid stray characters —
+    // instead of the whole row. When the new text is the same width or
+    // wider (the common case for most telemetry updates), no fillRect runs
+    // at all, matching the pre-#4 flicker-free redraw exactly.
     int newWidth = tft.textWidth(text.c_str(), 4);
     int maxWidth = tft.width() - x;
-    int clearWidth;
+    int oldWidth = maxWidth; // unknown-history fallback: assume worst case
 
     int* lastWidth = widthSlotFor(x, y);
     if (lastWidth != nullptr) {
-        clearWidth = (*lastWidth > newWidth) ? *lastWidth : newWidth;
+        oldWidth = *lastWidth;
         *lastWidth = newWidth;
-    } else {
-        clearWidth = maxWidth; // no free tracking slot — stay correct, just not minimal
     }
-    if (clearWidth > maxWidth) clearWidth = maxWidth;
 
-    tft.fillRect(x, y, clearWidth, tft.fontHeight(4), TFT_BLACK);
+    if (oldWidth > newWidth) {
+        int tailX = x + newWidth;
+        int tailWidth = oldWidth - newWidth;
+        if (tailX + tailWidth > x + maxWidth) {
+            tailWidth = maxWidth - newWidth;
+        }
+        if (tailWidth > 0) {
+            tft.fillRect(tailX, y, tailWidth, tft.fontHeight(4), TFT_BLACK);
+        }
+    }
+
     tft.setTextColor(color, TFT_BLACK);
     tft.drawString(text.c_str(), x, y, 4); // Font 4
 }
