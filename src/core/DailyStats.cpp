@@ -1,5 +1,6 @@
 #include "core/DailyStats.h"
 #include <cstdio>
+#include <ctime>
 
 void DailyStats::resetAccumulators() {
     samples = 0;
@@ -37,14 +38,35 @@ void DailyStats::record(const BitaxeData& data, uint32_t nowMs) {
     lastRejected = data.sharesRejected;
 }
 
-std::string DailyStats::tick(uint32_t nowMs, uint32_t interventionsTotal) {
+std::string DailyStats::tick(uint32_t nowMs, time_t nowEpoch, uint32_t interventionsTotal) {
     if (!started) {
         started = true;
         periodStartMs = nowMs;
         interventionsAtStart = interventionsTotal;
+        if (nowEpoch > 0) {
+            time_t today = nowEpoch / 86400;
+            struct tm* tmInfo = gmtime(&nowEpoch);
+            // Booted past today's digest hour: skip today (no full day of
+            // data yet), wait for tomorrow. Booted before it: allow today's
+            // digest once the clock reaches DIGEST_HOUR_UTC.
+            lastFiredDay = (tmInfo->tm_hour >= DIGEST_HOUR_UTC) ? today : today - 1;
+        }
         return "";
     }
-    if (nowMs - periodStartMs < PERIOD_MS) {
+
+    bool shouldFire;
+    if (nowEpoch > 0) {
+        time_t today = nowEpoch / 86400;
+        struct tm* tmInfo = gmtime(&nowEpoch);
+        shouldFire = (today != lastFiredDay && tmInfo->tm_hour >= DIGEST_HOUR_UTC);
+        if (shouldFire) {
+            lastFiredDay = today;
+        }
+    } else {
+        // No NTP sync (yet, or ever) — fall back to the original cadence
+        shouldFire = (nowMs - periodStartMs >= PERIOD_MS);
+    }
+    if (!shouldFire) {
         return "";
     }
 

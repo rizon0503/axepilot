@@ -10,8 +10,8 @@ void tearDown(void) {}
 
 void test_log_records_and_formats_newest_first() {
     InterventionLog log;
-    log.add(10000, "Autopilot", 490, 1100);
-    log.add(70000, "/set", 550, 1150);
+    log.add(10000, 0, "Autopilot", 490, 1100);
+    log.add(70000, 0, "/set", 550, 1150);
 
     char buf[512];
     log.format(buf, sizeof(buf), 130000); // 2 min after first, 1 min after second
@@ -30,7 +30,7 @@ void test_log_records_and_formats_newest_first() {
 void test_log_wraps_at_capacity() {
     InterventionLog log;
     for (int i = 0; i < 15; i++) {
-        log.add((uint32_t)i * 1000, "src", 400 + i, 1000);
+        log.add((uint32_t)i * 1000, 0, "src", 400 + i, 1000);
     }
 
     TEST_ASSERT_EQUAL(InterventionLog::CAPACITY, log.size());
@@ -40,6 +40,32 @@ void test_log_wraps_at_capacity() {
     std::string out(buf);
     TEST_ASSERT_TRUE(out.find("414 MHz") != std::string::npos);  // newest kept
     TEST_ASSERT_TRUE(out.find("404 MHz") == std::string::npos);  // oldest evicted
+}
+
+void test_log_shows_real_timestamp_once_ntp_synced() {
+    InterventionLog log;
+    // 2025-01-01T00:00:00Z
+    log.add(10000, 1735689600, "Autopilot", 490, 1100);
+
+    char buf[256];
+    log.format(buf, sizeof(buf), 20000);
+
+    std::string out(buf);
+    TEST_ASSERT_TRUE(out.find("00:00 UTC") != std::string::npos);
+    TEST_ASSERT_TRUE(out.find("ago") == std::string::npos);
+}
+
+void test_log_mixes_relative_and_real_timestamps() {
+    InterventionLog log;
+    log.add(10000, 0, "Boot fallback", 400, 1000);       // recorded before NTP synced
+    log.add(70000, 1735689600, "Autopilot", 490, 1100);  // recorded after NTP synced
+
+    char buf[512];
+    log.format(buf, sizeof(buf), 130000);
+
+    std::string out(buf);
+    TEST_ASSERT_TRUE(out.find("00:00 UTC") != std::string::npos);
+    TEST_ASSERT_TRUE(out.find("2m ago") != std::string::npos);
 }
 
 void test_controller_apply_settings_records_intervention() {
@@ -64,6 +90,8 @@ int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_log_records_and_formats_newest_first);
     RUN_TEST(test_log_wraps_at_capacity);
+    RUN_TEST(test_log_shows_real_timestamp_once_ntp_synced);
+    RUN_TEST(test_log_mixes_relative_and_real_timestamps);
     RUN_TEST(test_controller_apply_settings_records_intervention);
     return UNITY_END();
 }

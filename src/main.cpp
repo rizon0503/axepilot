@@ -99,6 +99,14 @@ static void networkTask(void*) {
                 continue; // Skip API calls until reconnected
             }
         }
+        // Start (or restart) NTP sync exactly once per "became connected"
+        // transition — covers the initial connect, a connect that happens
+        // after setup()'s WiFi wait already timed out, and any later
+        // reconnect after a drop. Cheap enough to not need throttling
+        // beyond that.
+        if (!wifiConnected.load()) {
+            configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // UTC, no DST offset
+        }
         wifiConnected = true;
 
         controller.update();
@@ -110,7 +118,7 @@ static void networkTask(void*) {
         dailyStats.record(data, sysTime.millis());
         rebootStats.tick(sysTime.millis() / 1000, controller.interventions().totalCount());
 
-        std::string digest = dailyStats.tick(sysTime.millis(), controller.interventions().totalCount());
+        std::string digest = dailyStats.tick(sysTime.millis(), sysTime.epochSeconds(), controller.interventions().totalCount());
         if (!digest.empty()) {
             notifier.sendMessage(digest);
         }
@@ -205,6 +213,8 @@ void setup() {
 
     // Set up Telegram Bot Menu — pointless without connectivity; the network
     // task doesn't repeat this call, but the bot menu isn't safety-critical.
+    // NTP sync is started from the network task instead (see networkTask()),
+    // so it isn't missed if WiFi connects only after this timeout window.
     if (WiFi.status() == WL_CONNECTED) {
         notifier.setupCommands();
     }

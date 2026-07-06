@@ -1,10 +1,12 @@
 #include "core/InterventionLog.h"
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
-void InterventionLog::add(uint32_t nowMs, const char* source, int frequency, int coreVoltage) {
+void InterventionLog::add(uint32_t nowMs, time_t epochSec, const char* source, int frequency, int coreVoltage) {
     Entry& entry = entries[head];
     entry.timeMs = nowMs;
+    entry.epochSec = epochSec;
     snprintf(entry.source, sizeof(entry.source), "%s", source ? source : "?");
     entry.frequency = frequency;
     entry.coreVoltage = coreVoltage;
@@ -31,18 +33,24 @@ void InterventionLog::format(char* buf, size_t bufLen, uint32_t nowMs) const {
 
     for (size_t i = 0; i < count && used + 1 < bufLen; i++) {
         const Entry& e = entries[(head + CAPACITY - 1 - i) % CAPACITY]; // newest first
-        uint32_t agoSec = (nowMs - e.timeMs) / 1000;
 
         char when[24];
-        if (agoSec < 60) {
-            snprintf(when, sizeof(when), "%us", (unsigned)agoSec);
-        } else if (agoSec < 3600) {
-            snprintf(when, sizeof(when), "%um", (unsigned)(agoSec / 60));
+        if (e.epochSec > 0) {
+            time_t t = e.epochSec;
+            struct tm* tmInfo = gmtime(&t);
+            strftime(when, sizeof(when), "%H:%M UTC", tmInfo);
         } else {
-            snprintf(when, sizeof(when), "%uh %um", (unsigned)(agoSec / 3600), (unsigned)((agoSec % 3600) / 60));
+            uint32_t agoSec = (nowMs - e.timeMs) / 1000;
+            if (agoSec < 60) {
+                snprintf(when, sizeof(when), "%us ago", (unsigned)agoSec);
+            } else if (agoSec < 3600) {
+                snprintf(when, sizeof(when), "%um ago", (unsigned)(agoSec / 60));
+            } else {
+                snprintf(when, sizeof(when), "%uh %um ago", (unsigned)(agoSec / 3600), (unsigned)((agoSec % 3600) / 60));
+            }
         }
 
-        int written = snprintf(buf + used, bufLen - used, "%s ago — %s: %d MHz / %d mV\n",
+        int written = snprintf(buf + used, bufLen - used, "%s — %s: %d MHz / %d mV\n",
                                when, e.source, e.frequency, e.coreVoltage);
         if (written <= 0 || (size_t)written >= bufLen - used) {
             break; // buffer full
