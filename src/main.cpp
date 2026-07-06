@@ -126,8 +126,10 @@ static void drawIfChanged(int x, int y, const char* text, uint16_t color, char* 
 
 // Static chrome for the Main screen: the emergency throttle button plus the
 // tab button that switches to the Controls screen. Drawn once in setup()
-// and again whenever the Controls screen hands control back.
+// and again whenever the Controls screen hands control back — clears the
+// screen first so Controls-screen buttons don't linger as visual artifacts.
 static void renderMainScreenChrome() {
+    display.clear();
     display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
     display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
                         ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "CTRL", TFT_BLUE);
@@ -313,9 +315,9 @@ void setup() {
         display.drawText(10, 40, "Retrying in background...", TFT_WHITE);
     }
     sysTime.delay(1000);
-    display.clear();
 
-    // Draw Throttle Button (Bottom Bar) + Controls-screen tab
+    // Draw Throttle Button (Bottom Bar) + Controls-screen tab; clears the
+    // screen first (see renderMainScreenChrome()).
     renderMainScreenChrome();
 
     // Set up Telegram Bot Menu — pointless without connectivity; the network
