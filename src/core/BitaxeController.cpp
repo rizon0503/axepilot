@@ -8,6 +8,10 @@ BitaxeController::BitaxeController(IHttpClient& httpClient, ISystemTime& sysTime
     currentData = BitaxeData{};
 }
 
+void BitaxeController::setIpAddress(const std::string& newIpAddress) {
+    ipAddress = newIpAddress;
+}
+
 void BitaxeController::update() {
     uint32_t now = sysTime.millis();
     if (now - lastUpdate >= 2000 || lastUpdate == 0) { // Update every 2 seconds
