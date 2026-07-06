@@ -110,7 +110,12 @@ static void resolveBitaxeIp() {
             return;
         }
     }
-    IPAddress resolved = MDNS.queryHost("bitaxe");
+    // This blocks the network task's first "became connected" iteration,
+    // during which wifiConnected briefly reads false — a shorter timeout
+    // than the 2000ms default keeps that self-correcting "Wi-Fi
+    // reconnecting..." flash on the Main screen brief. An mDNS responder
+    // that exists at all typically replies within a few hundred ms.
+    IPAddress resolved = MDNS.queryHost("bitaxe", 1000);
     if (resolved == IPAddress(0, 0, 0, 0)) {
         log_w("mDNS lookup for bitaxe.local failed, using static Bitaxe IP: %s", bitaxeIp);
         controller.setIpAddress(bitaxeIp);
@@ -316,7 +321,12 @@ void setup() {
 
     display.clear();
     if (WiFi.status() == WL_CONNECTED) {
-        wifiConnected = true;
+        // Deliberately NOT setting wifiConnected here: it starts false, and
+        // networkTask()'s own "!wifiConnected.load()" check is what runs
+        // NTP sync + mDNS resolution — setting it true already from here
+        // would make that check see "already connected" on its very first
+        // iteration and skip that setup entirely, even on this — the most
+        // common — connect path.
         char ipStr[16];
         formatIp(ipStr, sizeof(ipStr), WiFi.localIP());
         log_i("WiFi connected: %s (RSSI %d dBm)", ipStr, sysInfo.wifiRssi());
