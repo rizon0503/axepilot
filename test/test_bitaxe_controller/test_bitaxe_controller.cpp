@@ -159,6 +159,22 @@ void test_controller_preserves_last_known_data_on_http_failure() {
     TEST_ASSERT_EQUAL_FLOAT(900.0f, data.hashrate);
 }
 
+void test_controller_uses_updated_ip_address() {
+    MockHttpClient mockHttp;
+    MockSystemTime mockTime;
+    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
+
+    controller.setIpAddress("192.168.0.200"); // e.g. resolved via mDNS after construction
+
+    mockHttp.getResponse = "{\"temp\": 60.0, \"hashRate\": 1000, \"coreVoltage\": 1100, \"frequency\": 500}";
+    mockTime.currentTime = 5000;
+    controller.update();
+    TEST_ASSERT_TRUE(mockHttp.lastGetUrl.find("192.168.0.200") != std::string::npos);
+
+    controller.applySettings(500, 1100, "test");
+    TEST_ASSERT_TRUE(mockHttp.lastPatchUrl.find("192.168.0.200") != std::string::npos);
+}
+
 void test_controller_rate_limits_polling() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -188,6 +204,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_controller_defaults_vr_temp_when_absent);
     RUN_TEST(test_controller_ignores_oversized_response);
     RUN_TEST(test_controller_preserves_last_known_data_on_http_failure);
+    RUN_TEST(test_controller_uses_updated_ip_address);
     RUN_TEST(test_controller_rate_limits_polling);
     return UNITY_END();
 }

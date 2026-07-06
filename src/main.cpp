@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <esp_task_wdt.h>
 #include <esp32-hal-log.h>
 #include <atomic>
@@ -92,6 +93,35 @@ static void formatIp(char* buf, size_t len, IPAddress ip) {
     snprintf(buf, len, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
 }
 
+// Resolves the Bitaxe via mDNS (AxeOS announces itself as bitaxe.local) so a
+// DHCP-reassigned address doesn't strand the controller on a stale static
+// IP (#7). Falls back to BITAXE_IP from secrets.h if mDNS isn't available or
+// the miner doesn't answer within the query timeout.
+static void resolveBitaxeIp() {
+    // MDNS.begin() is the mDNS responder's one-time init — call it at most
+    // once (retrying on a later reconnect only if it hadn't succeeded yet),
+    // not on every reconnect like the query itself.
+    static bool mdnsStarted = false;
+    if (!mdnsStarted) {
+        mdnsStarted = MDNS.begin("axepilot");
+        if (!mdnsStarted) {
+            log_w("mDNS begin() failed, using static Bitaxe IP: %s", bitaxeIp);
+            controller.setIpAddress(bitaxeIp);
+            return;
+        }
+    }
+    IPAddress resolved = MDNS.queryHost("bitaxe");
+    if (resolved == IPAddress(0, 0, 0, 0)) {
+        log_w("mDNS lookup for bitaxe.local failed, using static Bitaxe IP: %s", bitaxeIp);
+        controller.setIpAddress(bitaxeIp);
+        return;
+    }
+    char ipStr[16];
+    formatIp(ipStr, sizeof(ipStr), resolved);
+    log_i("Resolved bitaxe.local via mDNS: %s", ipStr);
+    controller.setIpAddress(ipStr);
+}
+
 // Gathers the live ESP32 diagnostics into UiRenderer's data shape — the
 // rendering itself lives in core/UiRenderer (#14) so it's testable via an
 // IDisplay mock; this glue reads the hardware-backed singletons UiRenderer
@@ -149,13 +179,16 @@ static void networkTask(void*) {
             formatIp(ipStr, sizeof(ipStr), WiFi.localIP());
             log_i("WiFi reconnected: %s", ipStr);
         }
-        // Start (or restart) NTP sync exactly once per "became connected"
-        // transition — covers the initial connect, a connect that happens
-        // after setup()'s WiFi wait already timed out, and any later
-        // reconnect after a drop. Cheap enough to not need throttling
-        // beyond that.
+        // Start (or restart) NTP sync + resolve the Bitaxe's current address
+        // exactly once per "became connected" transition — covers the
+        // initial connect, a connect that happens after setup()'s WiFi wait
+        // already timed out, and any later reconnect after a drop. Cheap
+        // enough to not need throttling beyond that, and re-resolving on
+        // every reconnect means a DHCP-reassigned Bitaxe IP is picked up
+        // without needing a full controller reboot.
         if (!wifiConnected.load()) {
             configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // UTC, no DST offset
+            resolveBitaxeIp();
         }
         wifiConnected = true;
 

@@ -8,6 +8,10 @@
 class BitaxeController {
 public:
     BitaxeController(IHttpClient& httpClient, ISystemTime& sysTime, const std::string& ipAddress);
+    // Updates the address every subsequent call uses — lets the caller
+    // resolve the Bitaxe via mDNS after construction instead of only ever
+    // using the static IP passed to the constructor (#7).
+    void setIpAddress(const std::string& ipAddress);
     void update();
     BitaxeData getData() const;
     // Single point through which ALL frequency/voltage changes go to the
