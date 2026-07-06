@@ -3,7 +3,6 @@
 #include <esp_task_wdt.h>
 #include <esp32-hal-log.h>
 #include <atomic>
-#include <cstring>
 #include "secrets.h"
 
 // Any OpenAI-compatible endpoint can be set in secrets.h; DeepSeek by default
@@ -32,6 +31,7 @@
 #include "core/TouchMapper.h"
 #include "core/AppState.h"
 #include "core/ControlsScreen.h"
+#include "core/UiRenderer.h"
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -45,6 +45,7 @@ EspDisplay display;
 EspSystemTime sysTime;
 EspSystemInfo sysInfo;
 EspSettingsStore settingsStore;
+UiRenderer uiRenderer(display);
 
 BitaxeController controller(httpClient, sysTime, bitaxeIp);
 TelegramNotifier notifier(httpClient, telegramBotToken, telegramChatId);
@@ -84,19 +85,6 @@ AppState::RestoreTimer restartRestore;
 Screen currentScreen = Screen::MAIN;
 bool touchWasDown = false;       // edge-detects Controls-screen taps; see touchStarted in loop()
 
-// Per-line "last drawn" cache for the Main screen so unchanged lines are
-// skipped instead of being repainted (and flickering) every 500ms — see
-// drawIfChanged() below. File-scope (not loop()-local) so switching away to
-// the Controls screen and back can force a full repaint via
-// resetMainScreenCache(): the Controls screen calls display.clear(), which
-// wipes these lines off the physical screen without the cache knowing.
-static char lastTemp[64] = ""; static uint16_t lastTempColor = 0xFFFF;
-static char lastHashrate[64] = ""; static uint16_t lastHashrateColor = 0xFFFF;
-static char lastVolt[64] = ""; static uint16_t lastVoltColor = 0xFFFF;
-static char lastFreq[64] = ""; static uint16_t lastFreqColor = 0xFFFF;
-static char lastPow[64] = ""; static uint16_t lastPowColor = 0xFFFF;
-static char lastMode[64] = ""; static uint16_t lastModeColor = 0xFFFF;
-
 // Avoids WiFi.localIP().toString() (Arduino String) on the network task's
 // hot loop — snprintf into a caller buffer instead, per this project's
 // no-String-in-hot-paths rule.
@@ -104,100 +92,22 @@ static void formatIp(char* buf, size_t len, IPAddress ip) {
     snprintf(buf, len, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
 }
 
-static void resetMainScreenCache() {
-    lastTemp[0] = '\0';
-    lastHashrate[0] = '\0';
-    lastVolt[0] = '\0';
-    lastFreq[0] = '\0';
-    lastPow[0] = '\0';
-    lastMode[0] = '\0';
-    lastUiRefresh = 0; // force an immediate redraw of every line
-}
-
-// drawText() always fillRect()s the row before drawing (see EspDisplay), so
-// that a shorter string never leaves stray characters from the one it
-// replaces — but that means every call repaints the full row width,
-// regardless of whether anything actually changed. Calling it
-// unconditionally on every 500ms UI tick, for every line, made the screen
-// visibly flicker (solid-fill-then-redraw, 2 Hz, most of the display) even
-// when the telemetry hadn't moved. Skip the repaint entirely when neither
-// the text nor the color changed since the last time this line was drawn.
-static void drawIfChanged(int x, int y, const char* text, uint16_t color, char* cache, size_t cacheLen, uint16_t& lastColor) {
-    if (lastColor == color && strncmp(cache, text, cacheLen) == 0) {
-        return;
-    }
-    display.drawText(x, y, text, color);
-    snprintf(cache, cacheLen, "%s", text);
-    lastColor = color;
-}
-
-// Static chrome for the Main screen: the emergency throttle button plus the
-// tab button that switches to the Controls screen. Drawn once in setup()
-// and again whenever the Controls screen hands control back — clears the
-// screen first so Controls-screen buttons don't linger as visual artifacts.
-static void renderMainScreenChrome() {
-    display.clear();
-    display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
-    display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
-                        ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "CTRL", TFT_BLUE);
-}
-
-// The Controls screen is small and static enough to redraw wholesale
-// instead of tracking per-line diffs like the Main screen does.
-static void renderControlsScreen(OperationMode mode) {
-    display.clear();
-    display.drawButton(ControlsScreen::PRESET_ECO_RECT.x, ControlsScreen::PRESET_ECO_RECT.y,
-                        ControlsScreen::PRESET_ECO_RECT.w, ControlsScreen::PRESET_ECO_RECT.h, "400 MHz", TFT_CYAN);
-    display.drawButton(ControlsScreen::PRESET_BALANCED_RECT.x, ControlsScreen::PRESET_BALANCED_RECT.y,
-                        ControlsScreen::PRESET_BALANCED_RECT.w, ControlsScreen::PRESET_BALANCED_RECT.h, "500 MHz", TFT_CYAN);
-    display.drawButton(ControlsScreen::PRESET_TURBO_RECT.x, ControlsScreen::PRESET_TURBO_RECT.y,
-                        ControlsScreen::PRESET_TURBO_RECT.w, ControlsScreen::PRESET_TURBO_RECT.h, "575 MHz", TFT_CYAN);
-    display.drawButton(ControlsScreen::PRESET_MAX_RECT.x, ControlsScreen::PRESET_MAX_RECT.y,
-                        ControlsScreen::PRESET_MAX_RECT.w, ControlsScreen::PRESET_MAX_RECT.h, "625 MHz", TFT_CYAN);
-
-    bool isAuto = mode == OperationMode::AUTOPILOT;
-    display.drawButton(ControlsScreen::TOGGLE_MODE_RECT.x, ControlsScreen::TOGGLE_MODE_RECT.y,
-                        ControlsScreen::TOGGLE_MODE_RECT.w, ControlsScreen::TOGGLE_MODE_RECT.h,
-                        isAuto ? "AUTO" : "MANUAL", isAuto ? TFT_GREEN : TFT_ORANGE);
-    display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
-                        ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "RESTART", TFT_RED);
-    display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
-                        ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "DIAG", TFT_BLUE);
-}
-
-// Read-only ESP32 controller diagnostics (heap, WiFi, reset reason/count,
-// intervention total) — the same data the /esp Telegram command exposes,
-// so the device can be debugged without Telegram (#3). Drawn once on
-// entry, like the Controls screen: this is a glance-at-it snapshot, not a
-// live dashboard, so it doesn't need the Main screen's per-line dirty
-// tracking.
+// Gathers the live ESP32 diagnostics into UiRenderer's data shape — the
+// rendering itself lives in core/UiRenderer (#14) so it's testable via an
+// IDisplay mock; this glue reads the hardware-backed singletons UiRenderer
+// has no reason to depend on.
 static void renderDiagnosticsScreen() {
-    display.clear();
-    char buf[64];
-
-    uint32_t uptimeSec = sysTime.millis() / 1000;
-    snprintf(buf, sizeof(buf), "Uptime: %02u:%02u:%02u",
-             (unsigned)(uptimeSec / 3600), (unsigned)((uptimeSec % 3600) / 60), (unsigned)(uptimeSec % 60));
-    display.drawText(10, 40, buf, TFT_WHITE);
-
-    snprintf(buf, sizeof(buf), "Reset: %s (x%u)", sysInfo.resetReason(), (unsigned)rebootStats.resetCount());
-    display.drawText(10, 70, buf, TFT_WHITE);
-
-    snprintf(buf, sizeof(buf), "WiFi: %d dBm (drops: %u)", sysInfo.wifiRssi(), (unsigned)sysInfo.wifiReconnectCount());
-    display.drawText(10, 100, buf, TFT_CYAN);
-
-    snprintf(buf, sizeof(buf), "Heap: %u KB (min %u KB)",
-             (unsigned)(sysInfo.freeHeapBytes() / 1024), (unsigned)(sysInfo.minFreeHeapBytes() / 1024));
-    display.drawText(10, 130, buf, TFT_YELLOW);
-
-    snprintf(buf, sizeof(buf), "Max alloc: %u KB", (unsigned)(sysInfo.maxAllocBytes() / 1024));
-    display.drawText(10, 160, buf, TFT_YELLOW);
-
-    snprintf(buf, sizeof(buf), "Interventions: %u", (unsigned)rebootStats.interventionTotal());
-    display.drawText(10, 190, buf, TFT_GREEN);
-
-    display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
-                        ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "BACK", TFT_BLUE);
+    UiRenderer::DiagnosticsData diag;
+    diag.uptimeSeconds = sysTime.millis() / 1000;
+    diag.resetReason = sysInfo.resetReason();
+    diag.resetCount = rebootStats.resetCount();
+    diag.wifiRssi = sysInfo.wifiRssi();
+    diag.wifiReconnectCount = sysInfo.wifiReconnectCount();
+    diag.freeHeapBytes = sysInfo.freeHeapBytes();
+    diag.minFreeHeapBytes = sysInfo.minFreeHeapBytes();
+    diag.maxAllocBytes = sysInfo.maxAllocBytes();
+    diag.interventionTotal = rebootStats.interventionTotal();
+    uiRenderer.renderDiagnosticsScreen(diag);
 }
 
 static BitaxeData readSharedData() {
@@ -386,8 +296,8 @@ void setup() {
     sysTime.delay(1000);
 
     // Draw Throttle Button (Bottom Bar) + Controls-screen tab; clears the
-    // screen first (see renderMainScreenChrome()).
-    renderMainScreenChrome();
+    // screen first (see UiRenderer::renderMainScreenChrome()).
+    uiRenderer.renderMainScreenChrome();
 
     // Set up Telegram Bot Menu — pointless without connectivity; the network
     // task doesn't repeat this call, but the bot menu isn't safety-critical.
@@ -412,43 +322,7 @@ void loop() {
         lastUiRefresh = now;
         BitaxeData data = readSharedData();
         OperationMode mode = currentMode.load();
-        char buf[64];
-
-        snprintf(buf, sizeof(buf), "Temp: %.1f C", data.temperature);
-        drawIfChanged(10, 10, buf, data.isOverheating ? TFT_RED : TFT_GREEN, lastTemp, sizeof(lastTemp), lastTempColor);
-
-        // If hashrate is crazy high (like 86000 GH/s), we'll display it in TH/s to save screen space
-        if (data.hashrate > 9999.0f) {
-            snprintf(buf, sizeof(buf), "Hashrate: %.1f TH/s", data.hashrate / 1000.0f);
-        } else {
-            snprintf(buf, sizeof(buf), "Hashrate: %.1f GH/s", data.hashrate);
-        }
-        drawIfChanged(10, 40, buf, TFT_WHITE, lastHashrate, sizeof(lastHashrate), lastHashrateColor);
-
-        snprintf(buf, sizeof(buf), "Volt: %d mV", data.coreVoltage);
-        drawIfChanged(10, 70, buf, TFT_YELLOW, lastVolt, sizeof(lastVolt), lastVoltColor);
-
-        snprintf(buf, sizeof(buf), "Freq: %d MHz", data.frequency);
-        drawIfChanged(10, 100, buf, TFT_CYAN, lastFreq, sizeof(lastFreq), lastFreqColor);
-
-        // In autofanspeed mode AxeOS reports fanspeed=0%, so RPM is the
-        // meaningful number; show the percent only when it is set manually.
-        if (data.fanSpeedPercent > 0) {
-            snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %d%%", data.power, data.fanSpeedPercent);
-        } else {
-            snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %drpm", data.power, data.fanRpm);
-        }
-        drawIfChanged(10, 155, buf, TFT_WHITE, lastPow, sizeof(lastPow), lastPowColor);
-
-        // Draw Mode Status + WiFi state. y=129 (not 130): Font 4 is 26px tall,
-        // and the row below sits at y=155 — at y=130 this row's fillRect
-        // would clip one pixel off the top of that row's text.
-        if (!wifiConnected.load()) {
-            drawIfChanged(10, 129, "Wi-Fi reconnecting...", TFT_RED, lastMode, sizeof(lastMode), lastModeColor);
-        } else {
-            snprintf(buf, sizeof(buf), "Mode: %s", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
-            drawIfChanged(10, 129, buf, mode == OperationMode::AUTOPILOT ? TFT_GREEN : TFT_ORANGE, lastMode, sizeof(lastMode), lastModeColor);
-        }
+        uiRenderer.renderTelemetry(data, mode, wifiConnected.load());
     }
 
     // Emergency Throttle Button & Screen Wakeup
@@ -487,11 +361,11 @@ void loop() {
             throttleRequested = true;
 
             // Visual feedback; restored non-blockingly after 2 s
-            display.drawButton(0, 180, 320, 60, "THROTTLED!", TFT_ORANGE);
+            uiRenderer.renderThrottleButton(UiRenderer::ThrottleState::TRIGGERED);
             throttleRestore.trigger(now, 2000);
         } else if (touchStarted && ControlsScreen::hitTestMainScreen(tx, ty) == ControlsScreen::Action::SWITCH_SCREEN) {
             currentScreen = Screen::CONTROLS;
-            renderControlsScreen(currentMode.load());
+            uiRenderer.renderControlsScreen(currentMode.load());
         }
     }
 
@@ -499,7 +373,7 @@ void loop() {
         // Only redraw over the Main screen — nothing to restore if the user
         // already navigated away to Controls within the 2 s window.
         if (currentScreen == Screen::MAIN) {
-            display.drawButton(0, 180, 320, 60, "EMERGENCY THROTTLE", TFT_RED);
+            uiRenderer.renderThrottleButton(UiRenderer::ThrottleState::NORMAL);
         }
     }
 
@@ -516,14 +390,13 @@ void loop() {
                                           ? OperationMode::MANUAL
                                           : OperationMode::AUTOPILOT;
                 modeToggleRequested = true; // applied on the network task; see the comment by its declaration
-                renderControlsScreen(next); // optimistic — matches what the network task applies next tick
+                uiRenderer.renderControlsScreen(next); // optimistic — matches what the network task applies next tick
                 break;
             }
             case Action::RESTART:
                 if (!restartRestore.isPending()) {
                     restartRequested = true;
-                    display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
-                                        ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "SENT", TFT_ORANGE);
+                    uiRenderer.renderRestartButton(UiRenderer::RestartButtonState::SENT);
                     restartRestore.trigger(now, 2000);
                 }
                 break;
@@ -535,7 +408,7 @@ void loop() {
                 presetFrequency = preset.frequency;
                 presetCoreVoltage = preset.coreVoltage;
                 presetRequested = true; // network task also sets currentMode = MANUAL when it applies this
-                renderControlsScreen(OperationMode::MANUAL); // optimistic — matches what the network task applies next tick
+                uiRenderer.renderControlsScreen(OperationMode::MANUAL); // optimistic — matches what the network task applies next tick
                 break;
             }
             case Action::NONE:
@@ -545,8 +418,7 @@ void loop() {
 
     if (restartRestore.tick(now)) {
         if (currentScreen == Screen::CONTROLS) {
-            display.drawButton(ControlsScreen::RESTART_RECT.x, ControlsScreen::RESTART_RECT.y,
-                                ControlsScreen::RESTART_RECT.w, ControlsScreen::RESTART_RECT.h, "RESTART", TFT_RED);
+            uiRenderer.renderRestartButton(UiRenderer::RestartButtonState::NORMAL);
         }
     }
 
@@ -555,8 +427,9 @@ void loop() {
         TouchMapper::isWithinRect(tx, ty, ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
                                    ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h)) {
         currentScreen = Screen::MAIN;
-        resetMainScreenCache();
-        renderMainScreenChrome();
+        uiRenderer.resetTelemetryCache();
+        lastUiRefresh = 0; // force an immediate redraw instead of waiting up to 500ms
+        uiRenderer.renderMainScreenChrome();
     }
 
     sysTime.delay(10); // Yield; all periodic work is millis()-gated above
