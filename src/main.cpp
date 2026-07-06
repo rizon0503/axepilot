@@ -251,12 +251,14 @@ void loop() {
         }
         display.drawText(10, 155, buf, TFT_WHITE);
 
-        // Draw Mode Status + WiFi state
+        // Draw Mode Status + WiFi state. y=129 (not 130): Font 4 is 26px tall,
+        // and the row below sits at y=155 — at y=130 this row's fillRect
+        // would clip one pixel off the top of that row's text.
         if (!wifiConnected.load()) {
-            display.drawText(10, 130, "Wi-Fi reconnecting...", TFT_RED);
+            display.drawText(10, 129, "Wi-Fi reconnecting...", TFT_RED);
         } else {
             snprintf(buf, sizeof(buf), "Mode: %s", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
-            display.drawText(10, 130, buf, mode == OperationMode::AUTOPILOT ? TFT_GREEN : TFT_ORANGE);
+            display.drawText(10, 129, buf, mode == OperationMode::AUTOPILOT ? TFT_GREEN : TFT_ORANGE);
         }
     }
 
