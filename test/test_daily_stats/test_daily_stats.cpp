@@ -106,6 +106,38 @@ void test_ntp_digest_fires_only_once_per_day() {
     TEST_ASSERT_EQUAL(0, digest.length());
 }
 
+void test_ntp_digest_does_not_fire_immediately_when_ntp_syncs_after_boot() {
+    // configTime() is asynchronous in production — the very first tick()
+    // typically still sees nowEpoch == 0 (NTP hasn't synced yet), and a
+    // LATER tick is the first one with a valid clock. lastFiredDay must
+    // still be initialized sensibly at that point, not left at -1
+    // ("never fired") forever.
+    DailyStats stats;
+    stats.tick(0, 0, 0); // boots before NTP has synced
+    stats.record(sample(60.0f, 1000.0f, 15.0f, 100, 1), 1000);
+
+    // NTP syncs moments later, already past the 09:00 digest hour — must
+    // NOT fire immediately just because this is the first valid clock
+    // reading this boot.
+    time_t nowEpoch = 1735689600 + 10 * 3600; // 2025-01-01T10:00:00Z
+    std::string digest = stats.tick(2000, nowEpoch, 1);
+    TEST_ASSERT_EQUAL(0, digest.length());
+}
+
+void test_ntp_digest_still_fires_next_day_after_late_ntp_sync() {
+    DailyStats stats;
+    stats.tick(0, 0, 0); // boots before NTP has synced
+    stats.record(sample(60.0f, 1000.0f, 15.0f, 100, 1), 1000);
+
+    time_t day1 = 1735689600 + 10 * 3600; // NTP syncs, 10:00 UTC on day 1
+    stats.tick(2000, day1, 1); // does not fire (see test above)
+
+    // Next day, past the digest hour — should fire normally
+    time_t day2 = 1735689600 + 86400 + 9 * 3600; // day 2, 09:00 UTC
+    std::string digest = stats.tick(3000, day2, 1);
+    TEST_ASSERT_TRUE(digest.length() > 0);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_no_digest_before_period_ends);
@@ -115,5 +147,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ntp_digest_does_not_fire_before_configured_hour);
     RUN_TEST(test_ntp_digest_fires_once_past_configured_hour);
     RUN_TEST(test_ntp_digest_fires_only_once_per_day);
+    RUN_TEST(test_ntp_digest_does_not_fire_immediately_when_ntp_syncs_after_boot);
+    RUN_TEST(test_ntp_digest_still_fires_next_day_after_late_ntp_sync);
     return UNITY_END();
 }
