@@ -73,6 +73,15 @@ public:
     // snapshot, not a live dashboard. Clears first.
     void renderDiagnosticsScreen(const DiagnosticsData& diag);
 
+    // Full-screen takeover shown while an OTA image is being received (#10):
+    // renderOtaScreen() clears and draws the static text once, then
+    // renderOtaProgress() updates the percent + bar as the transfer advances
+    // (the caller only invokes it when the percent actually changed). The
+    // normal UI resumes via renderMainScreenChrome() + resetTelemetryCache()
+    // if the update fails; a successful update reboots instead.
+    void renderOtaScreen();
+    void renderOtaProgress(int percent);
+
 private:
     IDisplay& display;
 
