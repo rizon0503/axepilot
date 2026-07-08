@@ -138,3 +138,7 @@ Every frequency/voltage change — whether from the AI, the `/set` command or th
 - `master` is protected: changes land via PRs with a required green `build-and-test` check
 - CI runs the native test suite and the ESP32 build on every push and pull request
 - [TODO.md](TODO.md) — archive of shipped work; [HISTORY.md](HISTORY.md) — early development chronicle
+
+## License
+
+[PolyForm Strict License 1.0.0](LICENSE.md) — source-available, not open source. In short: reading, studying, and any **noncommercial** use (personal projects, research, running it on your own hardware) is permitted; **commercial use, distribution, and modifications/derivative works are not**, without the copyright holder's written permission.
