@@ -14,6 +14,7 @@ The device reads the miner's telemetry over its local HTTP API, renders it on th
 - 📅 **Daily digest**: average/min/max temperature, hashrate, power, GH/W, shares delta and intervention count, once every 24 h.
 - 💾 **NVS**: the AUTO/MANUAL mode survives reboots.
 - 🐕 **Watchdog**: a hung network stack reboots the controller instead of bricking it.
+- 📡 **OTA updates**: after the first serial flash, new firmware is pushed over WiFi (`pio run -e esp32-cyd-ota -t upload`) with an on-screen progress bar; a failed transfer keeps the old firmware running.
 
 ## Quick start
 
@@ -38,9 +39,21 @@ copy include\secrets.h.example include\secrets.h
 
 ## OTA updates
 
-After the initial serial flash, the firmware can be updated over WiFi: the device runs an ArduinoOTA receiver (`axepilot.local`, port 3232), and the `esp32-cyd-ota` environment pushes a locally built image to it. The upload is authenticated with `OTA_PASSWORD` from `include/secrets.h` (read automatically by `ota_auth.py`). During the transfer the screen shows a progress bar; the device reboots into the new firmware on success and keeps running the old one if the transfer fails.
+After the initial serial flash, the firmware can be updated over WiFi: the device runs an ArduinoOTA receiver (`axepilot.local`, port 3232), and the `esp32-cyd-ota` environment pushes a locally built image to it. The upload is authenticated with `OTA_PASSWORD` from `include/secrets.h` (read automatically by `ota_auth.py`, and it must match the password the running firmware was built with). During the transfer the screen shows a progress bar and touch input is suspended; the device reboots into the new firmware on success and keeps running the old one if the transfer fails. If mDNS resolution of `axepilot.local` fails on your network, pass the device address directly: `pio run -e esp32-cyd-ota -t upload --upload-port <IP>`.
 
-Note that OTA only works with locally built images — the binaries CI attaches to releases are compiled with placeholder secrets and would boot without your WiFi credentials.
+Note that OTA only works with locally built images — the binaries CI attaches to releases are compiled with placeholder secrets and would boot without your WiFi credentials. Serial flashing over the COM port always remains available as a fallback (and is the only way to apply a partition-table change).
+
+### One-time host setup on Windows
+
+espota's transfer phase is a **device→host TCP connection** to a random port on the uploading machine (only the invitation/auth handshake is UDP). Windows Firewall blocks that inbound connection by default — the telltale symptom is `Authenticating...OK` followed by `No response from device`. Allow the project venv's Python once, from an elevated PowerShell:
+
+```powershell
+New-NetFirewallRule -DisplayName "espota-axepilot" -Direction Inbound `
+  -Program "<path-to-repo>\.venv\Scripts\python.exe" `
+  -Action Allow -Profile Any
+```
+
+The rule is scoped to that one binary rather than a port because espota picks a random host port per upload. Use `-Profile Private` instead of `Any` if Windows categorizes your WiFi network as *Private* (check with `Get-NetConnectionProfile`).
 
 ## Architecture
 
@@ -56,6 +69,7 @@ networkTask (core 0, FreeRTOS) ── all networking: telemetry, Telegram, DeepS
         │     TelegramNotifier   sending/polling messages, thermal alerts
         │     TelemetryHistory   10-minute ring buffer, °C/min trend
         │     BenchmarkRunner    freq/volt preset benchmark (GH/W)
+        │     UiRenderer         all screen rendering (Main/Controls/Diagnostics/OTA)
         │     InterventionLog    journal of the last settings changes
         │     DailyStats         daily digest accumulators
         │     Limits.h           thermal thresholds and safe tuning ranges
@@ -67,7 +81,7 @@ networkTask (core 0, FreeRTOS) ── all networking: telemetry, Telegram, DeepS
                                 HTTPClient+TLS, NVS Preferences)
 ```
 
-All logic in `core/` is tested natively (122 Unity test cases): `pio test -e native`. Hardware is mocked through the `interfaces/` layer.
+All logic in `core/` is tested natively (177 Unity test cases): `pio test -e native`. Hardware is mocked through the `interfaces/` layer.
 
 ## Settings safety
 
