@@ -29,9 +29,18 @@ copy include\secrets.h.example include\secrets.h
 # 3. Tests (host-side, no hardware required)
 .venv\Scripts\pio test -e native
 
-# 4. Build and flash
+# 4. Build and flash (serial — required for the very first flash)
 .venv\Scripts\pio run -e esp32-cyd -t upload --upload-port COM4
+
+# 5. Later reflashes can go over WiFi instead (no cable needed)
+.venv\Scripts\pio run -e esp32-cyd-ota -t upload
 ```
+
+## OTA updates
+
+After the initial serial flash, the firmware can be updated over WiFi: the device runs an ArduinoOTA receiver (`axepilot.local`, port 3232), and the `esp32-cyd-ota` environment pushes a locally built image to it. The upload is authenticated with `OTA_PASSWORD` from `include/secrets.h` (read automatically by `ota_auth.py`). During the transfer the screen shows a progress bar; the device reboots into the new firmware on success and keeps running the old one if the transfer fails.
+
+Note that OTA only works with locally built images — the binaries CI attaches to releases are compiled with placeholder secrets and would boot without your WiFi credentials.
 
 ## Architecture
 

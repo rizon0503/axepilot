@@ -1,0 +1,12 @@
+# Two maximally-sized OTA app slots for the CYD's 4MB flash (#10).
+# Replaces the Arduino default table, whose 1.4MB SPIFFS partition this
+# project never uses (settings live in NVS via Preferences) — reclaiming it
+# grows each app slot from 1280KB to 1984KB while keeping OTA possible.
+# NVS keeps the default offset/size, so on-device settings survive the
+# one-time serial reflash that switching tables requires.
+# Name,    Type, SubType,  Offset,   Size,     Flags
+nvs,       data, nvs,      0x9000,   0x5000,
+otadata,   data, ota,      0xe000,   0x2000,
+app0,      app,  ota_0,    0x10000,  0x1F0000,
+app1,      app,  ota_1,    0x200000, 0x1F0000,
+coredump,  data, coredump, 0x3F0000, 0x10000,

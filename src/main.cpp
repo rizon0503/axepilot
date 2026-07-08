@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 #include <esp_task_wdt.h>
 #include <esp32-hal-log.h>
 #include <atomic>
@@ -85,6 +86,12 @@ static std::atomic<bool> restartRequested{false};
 // the Telegram command handler below does a non-atomic load-mutate-store of
 // currentMode, so a concurrent direct write from loop() could be clobbered.
 static std::atomic<bool> modeToggleRequested{false};
+// OTA transfer state (#10): written by ArduinoOTA's callbacks on the
+// network task, read by loop() to take over the display with a progress
+// screen — the display itself is only ever touched from loop()'s core,
+// since TFT_eSPI isn't thread-safe.
+static std::atomic<bool> otaInProgress{false};
+static std::atomic<int> otaProgressPercent{0};
 
 enum class Screen { MAIN, CONTROLS, DIAGNOSTICS };
 
@@ -95,6 +102,8 @@ AppState::RestoreTimer throttleRestore;
 AppState::RestoreTimer restartRestore;
 Screen currentScreen = Screen::MAIN;
 bool touchWasDown = false;       // edge-detects Controls-screen taps; see touchStarted in loop()
+bool otaScreenShown = false;     // loop()'s view of whether the OTA takeover is on screen
+int otaShownPercent = -1;        // last percent drawn, to redraw only on change
 
 // Avoids WiFi.localIP().toString() (Arduino String) on the network task's
 // hot loop — snprintf into a caller buffer instead, per this project's
@@ -135,6 +144,47 @@ static void resolveBitaxeIp() {
     formatIp(ipStr, sizeof(ipStr), resolved);
     log_i("Resolved bitaxe.local via mDNS: %s", ipStr);
     controller.setIpAddress(ipStr);
+}
+
+// Starts the ArduinoOTA receiver (#10) — push-based flashing of a locally
+// built image over WiFi (pio run -e esp32-cyd-ota -t upload). Pull-from-
+// GitHub-releases self-update is deliberately NOT a thing here: CI builds
+// with placeholder secrets (#56), so a release binary would boot without
+// WiFi/Telegram credentials. Called from the network task once WiFi is up;
+// begin() must not run twice, hence the guard.
+static void startOtaReceiverOnce() {
+    static bool otaStarted = false;
+    if (otaStarted) {
+        return;
+    }
+    ArduinoOTA.setHostname("axepilot"); // same name resolveBitaxeIp() registered with mDNS
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+    ArduinoOTA.onStart([]() {
+        otaProgressPercent = 0;
+        otaInProgress = true;
+        log_i("OTA update started");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        // The whole transfer runs inside ArduinoOTA.handle() on this task,
+        // so the main loop's wdt reset doesn't happen until it finishes —
+        // feed the watchdog from here so a slow link can't trip the 180s
+        // budget mid-flash.
+        esp_task_wdt_reset();
+        if (total > 0) {
+            otaProgressPercent = (int)((uint64_t)progress * 100 / total);
+        }
+    });
+    ArduinoOTA.onEnd([]() {
+        otaProgressPercent = 100;
+        log_i("OTA update complete, restarting");
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        otaInProgress = false; // loop() sees this and restores the normal UI
+        log_e("OTA update failed (error %d)", (int)error);
+    });
+    ArduinoOTA.begin();
+    otaStarted = true;
+    log_i("OTA receiver ready (hostname: axepilot, port 3232)");
 }
 
 // Gathers the live ESP32 diagnostics into UiRenderer's data shape — the
@@ -213,8 +263,14 @@ static void networkTask(void*) {
         if (!wifiConnected.load()) {
             configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // UTC, no DST offset
             resolveBitaxeIp();
+            startOtaReceiverOnce();
         }
         wifiConnected = true;
+
+        // Polls for an incoming OTA push; if one arrives, this call blocks
+        // for the whole transfer (its onProgress callback keeps the
+        // watchdog fed) and reboots on success.
+        ArduinoOTA.handle();
 
         controller.update();
         BitaxeData data = controller.getData();
@@ -382,6 +438,35 @@ void setup() {
 
 void loop() {
     uint32_t now = sysTime.millis();
+
+    // OTA takeover (#10): while an image is being received, suspend the
+    // normal UI (including touch — the buttons it would hit-test aren't on
+    // screen) and show a progress screen instead. A successful update
+    // reboots the device from inside ArduinoOTA.handle(), so the only way
+    // back into the normal UI here is a failed transfer.
+    if (otaInProgress.load()) {
+        if (!otaScreenShown) {
+            otaScreenShown = true;
+            otaShownPercent = -1;
+            display.setBacklight(true); // make the takeover visible even mid-screensaver
+            uiRenderer.renderOtaScreen();
+        }
+        int percent = otaProgressPercent.load();
+        if (percent != otaShownPercent) {
+            otaShownPercent = percent;
+            uiRenderer.renderOtaProgress(percent);
+        }
+        sysTime.delay(50);
+        return;
+    }
+    if (otaScreenShown) {
+        // Failed transfer: repaint the Main screen over the OTA takeover.
+        otaScreenShown = false;
+        currentScreen = Screen::MAIN;
+        uiRenderer.resetTelemetryCache();
+        lastUiRefresh = 0;
+        uiRenderer.renderMainScreenChrome();
+    }
 
     // UI Update, throttled to twice a second (snprintf to prevent heap fragmentation).
     // Only the Main screen shows live telemetry; the Controls screen is static.

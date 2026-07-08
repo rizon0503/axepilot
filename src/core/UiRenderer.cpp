@@ -208,6 +208,26 @@ void UiRenderer::renderRestartButton(RestartButtonState state) {
     }
 }
 
+// OTA progress bar geometry: 300px = 100%, so bar width is percent * 3.
+namespace {
+constexpr int OTA_BAR_X = 10, OTA_BAR_Y = 150, OTA_BAR_H = 20, OTA_BAR_FULL_W = 300;
+} // namespace
+
+void UiRenderer::renderOtaScreen() {
+    display.clear();
+    display.drawText(10, 40, "OTA update...", COLOR_CYAN);
+    display.drawText(10, 70, "Do not power off", COLOR_WHITE);
+}
+
+void UiRenderer::renderOtaProgress(int percent) {
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", percent);
+    display.drawText(10, 110, buf, COLOR_WHITE);
+    display.fillRect(OTA_BAR_X, OTA_BAR_Y, percent * OTA_BAR_FULL_W / 100, OTA_BAR_H, COLOR_GREEN);
+}
+
 void UiRenderer::renderDiagnosticsScreen(const DiagnosticsData& diag) {
     display.clear();
     char buf[64];

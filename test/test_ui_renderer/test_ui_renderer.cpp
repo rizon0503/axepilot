@@ -298,6 +298,47 @@ void test_render_restart_button_states() {
     TEST_ASSERT_EQUAL(Colors::RED, normal->color);
 }
 
+void test_render_ota_screen_clears_and_shows_title() {
+    MockDisplay display;
+    UiRenderer renderer(display);
+
+    renderer.renderOtaScreen();
+
+    TEST_ASSERT_EQUAL(1, display.clearCalls);
+    TEST_ASSERT_EQUAL_STRING("OTA update...", display.lastTextAt(10, 40)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("Do not power off", display.lastTextAt(10, 70)->text.c_str());
+}
+
+void test_render_ota_progress_draws_percent_and_bar() {
+    MockDisplay display;
+    UiRenderer renderer(display);
+
+    renderer.renderOtaProgress(40);
+
+    TEST_ASSERT_EQUAL_STRING("40%", display.lastTextAt(10, 110)->text.c_str());
+    TEST_ASSERT_EQUAL(1, display.fillRectCalls.size());
+    const auto& bar = display.fillRectCalls[0];
+    TEST_ASSERT_EQUAL(10, bar.x);
+    TEST_ASSERT_EQUAL(150, bar.y);
+    TEST_ASSERT_EQUAL(120, bar.w); // 40% of the 300px-wide bar
+    TEST_ASSERT_EQUAL(20, bar.h);
+    TEST_ASSERT_EQUAL(Colors::GREEN, bar.color);
+}
+
+void test_render_ota_progress_clamps_out_of_range() {
+    MockDisplay display;
+    UiRenderer renderer(display);
+
+    renderer.renderOtaProgress(150);
+
+    TEST_ASSERT_EQUAL_STRING("100%", display.lastTextAt(10, 110)->text.c_str());
+    TEST_ASSERT_EQUAL(300, display.fillRectCalls[0].w); // full bar, not 450px
+
+    renderer.renderOtaProgress(-5);
+    TEST_ASSERT_EQUAL_STRING("0%", display.lastTextAt(10, 110)->text.c_str());
+    TEST_ASSERT_EQUAL(0, display.fillRectCalls[1].w);
+}
+
 void test_render_diagnostics_screen_shows_all_fields() {
     MockDisplay display;
     UiRenderer renderer(display);
@@ -348,6 +389,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_render_controls_screen_shows_auto_mode);
     RUN_TEST(test_render_controls_screen_shows_manual_mode);
     RUN_TEST(test_render_restart_button_states);
+    RUN_TEST(test_render_ota_screen_clears_and_shows_title);
+    RUN_TEST(test_render_ota_progress_draws_percent_and_bar);
+    RUN_TEST(test_render_ota_progress_clamps_out_of_range);
     RUN_TEST(test_render_diagnostics_screen_shows_all_fields);
     return UNITY_END();
 }
