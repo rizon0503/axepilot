@@ -25,6 +25,19 @@ constexpr int THROTTLE_X = 0, THROTTLE_Y = 180, THROTTLE_W = 320, THROTTLE_H = 6
 // halves with a small gap between them.
 constexpr int SPARK_Y = 125, SPARK_H = 24;
 constexpr int TEMP_SPARK_X = 10, HASH_SPARK_X = 170, SPARK_W = 140;
+
+// #64: a "T"/"H" letter drawn once (in renderMainScreenChrome(), alongside
+// the other static chrome) in the leading few pixels of each sparkline's
+// rect, so the two graphs aren't distinguishable by color alone. The graph
+// line itself is drawn/cleared starting after this reserved margin so the
+// periodic data-driven redraw in renderSparklines() never paints over — or
+// needs to reproduce — the label. Sized generously (Font 4 capital letters
+// run up to ~18px wide on this display) so the graph's own repaint can't
+// clip the letter; verify on hardware after flashing.
+constexpr int SPARK_LABEL_W = 22;
+constexpr int TEMP_GRAPH_X = TEMP_SPARK_X + SPARK_LABEL_W;
+constexpr int HASH_GRAPH_X = HASH_SPARK_X + SPARK_LABEL_W;
+constexpr int GRAPH_W = SPARK_W - SPARK_LABEL_W;
 } // namespace
 
 UiRenderer::UiRenderer(IDisplay& display) : display(display) {}
@@ -79,8 +92,8 @@ void UiRenderer::renderSparklines(const float* tempHistory, size_t tempHistoryCo
     bool tempChanged = tempHistoryCount != lastTempSparkCount_ ||
                         memcmp(tempHistory, lastTempSpark_, tempHistoryCount * sizeof(float)) != 0;
     if (tempChanged) {
-        display.fillRect(TEMP_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, COLOR_BLACK);
-        drawSparklineLine(TEMP_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, tempHistory, tempHistoryCount, COLOR_GREEN);
+        display.fillRect(TEMP_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, COLOR_BLACK);
+        drawSparklineLine(TEMP_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, tempHistory, tempHistoryCount, COLOR_GREEN);
         memcpy(lastTempSpark_, tempHistory, tempHistoryCount * sizeof(float));
         lastTempSparkCount_ = tempHistoryCount;
     }
@@ -88,8 +101,8 @@ void UiRenderer::renderSparklines(const float* tempHistory, size_t tempHistoryCo
     bool hashChanged = hashHistoryCount != lastHashSparkCount_ ||
                         memcmp(hashHistory, lastHashSpark_, hashHistoryCount * sizeof(float)) != 0;
     if (hashChanged) {
-        display.fillRect(HASH_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, COLOR_BLACK);
-        drawSparklineLine(HASH_SPARK_X, SPARK_Y, SPARK_W, SPARK_H, hashHistory, hashHistoryCount, COLOR_WHITE);
+        display.fillRect(HASH_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, COLOR_BLACK);
+        drawSparklineLine(HASH_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, hashHistory, hashHistoryCount, COLOR_WHITE);
         memcpy(lastHashSpark_, hashHistory, hashHistoryCount * sizeof(float));
         lastHashSparkCount_ = hashHistoryCount;
     }
@@ -158,6 +171,11 @@ void UiRenderer::renderMainScreenChrome() {
     renderThrottleButton(ThrottleState::NORMAL);
     display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
                         ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "CTRL", COLOR_BLUE);
+
+    // Sparkline labels (#64): static, so drawn once here rather than on
+    // every renderTelemetry() call like the graphs themselves.
+    display.drawText(TEMP_SPARK_X, SPARK_Y, "T", COLOR_GREEN);
+    display.drawText(HASH_SPARK_X, SPARK_Y, "H", COLOR_WHITE);
 }
 
 void UiRenderer::renderControlsScreen(OperationMode mode) {

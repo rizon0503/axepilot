@@ -245,6 +245,20 @@ void test_render_main_screen_chrome_clears_and_draws_throttle_and_tab() {
     TEST_ASSERT_EQUAL_STRING("CTRL", display.lastButtonAt(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y)->label.c_str());
 }
 
+void test_render_main_screen_chrome_draws_sparkline_labels() {
+    MockDisplay display;
+    UiRenderer renderer(display);
+
+    renderer.renderMainScreenChrome();
+
+    // "T"/"H" letters (#64) so the color-only distinction between the two
+    // sparklines isn't the only way to tell them apart.
+    TEST_ASSERT_EQUAL_STRING("T", display.lastTextAt(10, 125)->text.c_str());
+    TEST_ASSERT_EQUAL(Colors::GREEN, display.lastTextAt(10, 125)->color);
+    TEST_ASSERT_EQUAL_STRING("H", display.lastTextAt(170, 125)->text.c_str());
+    TEST_ASSERT_EQUAL(Colors::WHITE, display.lastTextAt(170, 125)->color);
+}
+
 void test_render_controls_screen_shows_auto_mode() {
     MockDisplay display;
     UiRenderer renderer(display);
@@ -330,6 +344,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_render_throttle_button_normal_state);
     RUN_TEST(test_render_throttle_button_triggered_state);
     RUN_TEST(test_render_main_screen_chrome_clears_and_draws_throttle_and_tab);
+    RUN_TEST(test_render_main_screen_chrome_draws_sparkline_labels);
     RUN_TEST(test_render_controls_screen_shows_auto_mode);
     RUN_TEST(test_render_controls_screen_shows_manual_mode);
     RUN_TEST(test_render_restart_button_states);
