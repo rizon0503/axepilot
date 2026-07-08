@@ -134,6 +134,7 @@ Every frequency/voltage change — whether from the AI, the `/set` command or th
 ## Development
 
 - Roadmap: [GitHub Issues](https://github.com/rizon0503/axepilot/issues), grouped into [milestones](https://github.com/rizon0503/axepilot/milestones)
+- Threat model and accepted security trade-offs: [SECURITY.md](SECURITY.md)
 - `master` is protected: changes land via PRs with a required green `build-and-test` check
 - CI runs the native test suite and the ESP32 build on every push and pull request
 - [TODO.md](TODO.md) — archive of shipped work; [HISTORY.md](HISTORY.md) — early development chronicle
