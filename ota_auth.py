@@ -7,6 +7,9 @@ with open("include/secrets.h") as f:
     match = re.search(r'#define\s+OTA_PASSWORD\s+"([^"]*)"', f.read())
 
 if match and match.group(1):
-    env.Append(UPLOAD_FLAGS=["--auth=" + match.group(1)])
+    # UPLOADERFLAGS, not UPLOAD_FLAGS: platform-espressif32 builds the espota
+    # command line from UPLOADERFLAGS only, and it has already Replace()d
+    # that variable by the time project extra_scripts run.
+    env.Append(UPLOADERFLAGS=["--auth=" + match.group(1)])
 else:
     print("ota_auth.py: no OTA_PASSWORD in include/secrets.h — espota will fail auth")
