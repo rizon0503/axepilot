@@ -40,7 +40,7 @@ void DailyStats::record(const BitaxeData& data, uint32_t nowMs) {
 
 void DailyStats::initializeLastFiredDay(time_t nowEpoch) {
     time_t today = nowEpoch / 86400;
-    struct tm* tmInfo = gmtime(&nowEpoch);
+    const struct tm* tmInfo = gmtime(&nowEpoch);
     // Past today's digest hour: skip today (no full day of data yet), wait
     // for tomorrow. Before it: allow today's digest once the clock reaches
     // DIGEST_HOUR_UTC.
@@ -69,7 +69,7 @@ std::string DailyStats::tick(uint32_t nowMs, time_t nowEpoch, uint32_t intervent
             initializeLastFiredDay(nowEpoch);
         }
         time_t today = nowEpoch / 86400;
-        struct tm* tmInfo = gmtime(&nowEpoch);
+        const struct tm* tmInfo = gmtime(&nowEpoch);
         shouldFire = (today != lastFiredDay && tmInfo->tm_hour >= DIGEST_HOUR_UTC);
         if (shouldFire) {
             lastFiredDay = today;

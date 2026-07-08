@@ -31,6 +31,12 @@ jobs:
       - name: Native unit tests
         run: pio test -e native
 
+      # Static analysis (#78): medium+ findings in our code fail the build;
+      # low/style stays advisory in the log. Scope and suppressions live in
+      # platformio.ini next to the env they apply to.
+      - name: Static analysis (cppcheck)
+        run: pio check -e esp32-cyd --skip-packages --fail-on-defect=medium --fail-on-defect=high
+
       - name: Build ESP32 firmware
         run: pio run -e esp32-cyd
 
