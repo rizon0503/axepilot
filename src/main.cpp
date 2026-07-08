@@ -421,6 +421,11 @@ constexpr uint32_t WIFI_SETUP_TIMEOUT_MS = 30000;
 
 void setup() {
     Serial.begin(115200);
+#ifdef AI_ROOT_CA
+    // Pins a custom AI_BASE_URL endpoint's root CA (#76); without this, a
+    // non-DeepSeek HTTPS endpoint gets no certificate validation at all.
+    httpClient.setCustomCaCert(AI_ROOT_CA);
+#endif
     esp_task_wdt_init(180, true); // panic + reboot if the network task hangs
     currentMode = settingsStore.loadMode(OperationMode::AUTOPILOT);
     rebootStats.begin();

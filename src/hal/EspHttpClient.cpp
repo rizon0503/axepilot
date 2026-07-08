@@ -31,15 +31,26 @@ private:
 constexpr uint16_t TIMEOUT_FAST_MS = 10000;
 constexpr uint16_t TIMEOUT_LLM_MS = 45000;
 
-std::unique_ptr<WiFiClient> makeClient(const std::string& url) {
+std::unique_ptr<WiFiClient> makeClient(const std::string& url, const char* customCaCert) {
     if (url.rfind("https://", 0) == 0) {
         auto secureClient = std::unique_ptr<WiFiClientSecure>(new WiFiClientSecure());
         if (url.rfind("https://api.deepseek.com", 0) == 0) {
             secureClient->setCACert(RootCerts::AMAZON_ROOT_CA_1);
+        } else if (customCaCert != nullptr) {
+            // AI_ROOT_CA from secrets.h — a user pinning their custom
+            // AI_BASE_URL endpoint's root CA (#76).
+            secureClient->setCACert(customCaCert);
         } else {
             // A user-configured AI_BASE_URL (OpenRouter, self-hosted Ollama,
             // etc.) can point anywhere — we can't pin a CA we don't know.
+            // Loud, but once per boot: the API key travels over this
+            // connection, and the user should know it's unverified (#76).
             secureClient->setInsecure();
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                log_w("TLS certificate validation DISABLED for %s — set AI_ROOT_CA in secrets.h to pin it", url.c_str());
+            }
         }
         return secureClient;
     }
@@ -74,6 +85,10 @@ EspHttpClient::EspHttpClient() {
     telegramClient.setCACert(RootCerts::GODADDY_ROOT_CA_G2);
 }
 
+void EspHttpClient::setCustomCaCert(const char* pem) {
+    customCaCert = pem;
+}
+
 bool EspHttpClient::isTelegramUrl(const std::string& url) {
     return url.rfind("https://api.telegram.org", 0) == 0;
 }
@@ -89,7 +104,7 @@ HttpResult EspHttpClient::get(const std::string& url) {
         return result;
     }
 
-    auto client = makeClient(url);
+    auto client = makeClient(url, customCaCert);
     HTTPClient http;
     beginRequest(http, *client, url, TIMEOUT_FAST_MS);
 
@@ -111,7 +126,7 @@ HttpResult EspHttpClient::post(const std::string& url, const std::string& payloa
         return result;
     }
 
-    auto client = makeClient(url);
+    auto client = makeClient(url, customCaCert);
     HTTPClient http;
     beginRequest(http, *client, url, TIMEOUT_LLM_MS);
     http.addHeader("Content-Type", "application/json");
@@ -153,7 +168,7 @@ HttpResult EspHttpClient::post(const std::string& url, const std::string& payloa
 }
 
 HttpResult EspHttpClient::patch(const std::string& url, const std::string& payload, const std::string& headers) {
-    auto client = makeClient(url);
+    auto client = makeClient(url, customCaCert);
     HTTPClient http;
     beginRequest(http, *client, url, TIMEOUT_FAST_MS);
     http.addHeader("Content-Type", "application/json");
