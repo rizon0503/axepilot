@@ -33,3 +33,43 @@ jobs:
 
       - name: Build ESP32 firmware
         run: pio run -e esp32-cyd
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: .pio/build/esp32-cyd/firmware.bin
+
+  publish-release:
+    needs: build-and-test
+    # An explicit `if:` replaces the default implicit success() check on a
+    # job with `needs:` — without success() here, a failed build-and-test
+    # wouldn't cleanly skip this job, it'd run anyway and fail on a missing
+    # artifact instead.
+    if: success() && github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: .
+
+      # Compiled with the placeholder secrets.h.example, same as the build
+      # above — not flashable as-is, see #56 for why real secrets are never
+      # injected into a release built from this public repo.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHORT_SHA=${GITHUB_SHA:0:7}
+          # Idempotent: a manual "re-run failed jobs" for the same commit
+          # would otherwise fail with "release already exists" — the
+          # rebuild is deterministic from the same commit anyway, so
+          # replacing it is harmless.
+          gh release delete "build-$SHORT_SHA" --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          gh release create "build-$SHORT_SHA" firmware.bin \
+            --repo "${{ github.repository }}" \
+            --title "Build $SHORT_SHA (master)" \
+            --notes "Automated build from commit $GITHUB_SHA. Compiled with placeholder secrets (secrets.h.example) — not flashable as-is; copy include/secrets.h.example to include/secrets.h with your own credentials and rebuild locally. Intended as a rollback reference point, not a ready-to-flash release."
