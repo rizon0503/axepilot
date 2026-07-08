@@ -60,6 +60,38 @@ The rule is scoped to that one binary rather than a port because espota picks a 
 
 `http://axepilot.local/` (or the device's IP) serves a small read-only dashboard: the same telemetry, mode and temperature/hashrate sparklines as the CYD's Main screen, polled from `GET /api/status` every 2 s. It's LAN-only with no authentication — don't port-forward it. Controls-screen actions (presets, mode toggle, restart) aren't exposed yet; see [#70](https://github.com/rizon0503/axepilot/issues/70) for that follow-up.
 
+Two endpoints, both `GET`, no auth, LAN-only, served directly from the device (port 80):
+
+| Endpoint       | Returns |
+|----------------|---------|
+| `/`            | The dashboard page (`text/html`) |
+| `/api/status`  | Live telemetry (`application/json`), built by `StatusJsonBuilder` from the same snapshot the CYD screen renders |
+
+`/api/status` example response:
+
+```json
+{
+  "temperature": 65.9,
+  "hashrate": 1000.9,
+  "coreVoltage": 1150,
+  "frequency": 500,
+  "power": 20.1,
+  "fanSpeedPercent": 0,
+  "fanRpm": 3827,
+  "mode": "AUTO",
+  "wifiOk": true,
+  "isOverheating": false,
+  "tempHistory": [65.1, 65.4, 65.9],
+  "hashHistory": [948.9, 970.2, 1000.9]
+}
+```
+
+Field notes:
+- `temperature` (°C), `hashrate` (GH/s, raw — the dashboard converts to TH/s client-side above 9999), `coreVoltage` (mV), `frequency` (MHz), `power` (W).
+- `fanSpeedPercent` is `0` in autofan mode — read `fanRpm` instead, same convention as the CYD screen and the Telegram `/status` command.
+- `mode` is `"AUTO"` or `"MANUAL"`; `wifiOk` reflects the ESP32's own WiFi connection, not the Bitaxe's.
+- `tempHistory`/`hashHistory` are oldest-first, up to `TelemetryHistory::CAPACITY` (20 samples, ~30 s apart — a 10-minute window), same arrays the Main screen's sparklines draw.
+
 ## Architecture
 
 ```
