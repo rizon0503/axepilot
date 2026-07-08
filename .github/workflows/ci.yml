@@ -63,13 +63,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SHORT_SHA=${GITHUB_SHA:0:7}
-          # Idempotent: a manual "re-run failed jobs" for the same commit
-          # would otherwise fail with "release already exists" — the
-          # rebuild is deterministic from the same commit anyway, so
-          # replacing it is harmless.
-          gh release delete "build-$SHORT_SHA" --repo "${{ github.repository }}" --yes 2>/dev/null || true
-          gh release create "build-$SHORT_SHA" firmware.bin \
+          # run_number increments on every ci.yml trigger (PR builds too,
+          # not just master pushes), so consecutive release versions can
+          # skip numbers — still monotonically increasing and unique,
+          # just not gapless. Date prefix keeps it human-sortable at a
+          # glance without needing to cross-reference the commit history.
+          VERSION="v$(date -u +%Y.%m.%d).${{ github.run_number }}"
+          # Idempotent: a manual "re-run failed jobs" reuses the same
+          # run_number, which would otherwise fail with "release already
+          # exists" — the rebuild is deterministic from the same commit
+          # anyway, so replacing it is harmless.
+          gh release delete "$VERSION" --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          gh release create "$VERSION" firmware.bin \
             --repo "${{ github.repository }}" \
-            --title "Build $SHORT_SHA (master)" \
+            --title "$VERSION" \
             --notes "Automated build from commit $GITHUB_SHA. Compiled with placeholder secrets (secrets.h.example) — not flashable as-is; copy include/secrets.h.example to include/secrets.h with your own credentials and rebuild locally. Intended as a rollback reference point, not a ready-to-flash release."
