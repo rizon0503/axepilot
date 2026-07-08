@@ -2,10 +2,12 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
+#include <WebServer.h>
 #include <esp_task_wdt.h>
 #include <esp32-hal-log.h>
 #include <atomic>
 #include "secrets.h"
+#include "DashboardHtml.h"
 
 // Any OpenAI-compatible endpoint can be set in secrets.h; DeepSeek by default
 #ifndef AI_BASE_URL
@@ -34,6 +36,7 @@
 #include "core/AppState.h"
 #include "core/ControlsScreen.h"
 #include "core/UiRenderer.h"
+#include "core/StatusJsonBuilder.h"
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -48,6 +51,7 @@ EspSystemTime sysTime;
 EspSystemInfo sysInfo;
 EspSettingsStore settingsStore;
 UiRenderer uiRenderer(display);
+WebServer webServer(80); // Web UI (#70), served from the network task
 
 BitaxeController controller(httpClient, sysTime, bitaxeIp);
 TelegramNotifier notifier(httpClient, telegramBotToken, telegramChatId);
@@ -221,6 +225,34 @@ static MainScreenSnapshot readMainScreenSnapshot() {
     return snap;
 }
 
+// Web UI (#70): LAN-only, read-only dashboard mirroring the Main screen.
+// Started once WiFi is up, same lifecycle as startOtaReceiverOnce(). Data
+// comes from the same spinlock-protected snapshot loop() reads — the
+// handler never touches TelemetryHistory/BitaxeController directly.
+static void handleDashboardRoot() {
+    webServer.send_P(200, "text/html", DASHBOARD_HTML);
+}
+
+static void handleStatusJson() {
+    MainScreenSnapshot snap = readMainScreenSnapshot();
+    std::string json = StatusJsonBuilder::build(snap.data, currentMode.load(), wifiConnected.load(),
+                                                 snap.sparkline.temps, snap.sparkline.count,
+                                                 snap.sparkline.hashrates, snap.sparkline.count);
+    webServer.send(200, "application/json", json.c_str());
+}
+
+static void startWebServerOnce() {
+    static bool webServerStarted = false;
+    if (webServerStarted) {
+        return;
+    }
+    webServer.on("/", HTTP_GET, handleDashboardRoot);
+    webServer.on("/api/status", HTTP_GET, handleStatusJson);
+    webServer.begin();
+    webServerStarted = true;
+    log_i("Web UI ready: http://axepilot.local/");
+}
+
 // All HTTP(S) I/O lives here. A DeepSeek call can take tens of seconds —
 // the UI loop on the other core keeps rendering and reacting to touch.
 static void networkTask(void*) {
@@ -264,6 +296,7 @@ static void networkTask(void*) {
             configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // UTC, no DST offset
             resolveBitaxeIp();
             startOtaReceiverOnce();
+            startWebServerOnce();
         }
         wifiConnected = true;
 
@@ -271,6 +304,8 @@ static void networkTask(void*) {
         // for the whole transfer (its onProgress callback keeps the
         // watchdog fed) and reboots on success.
         ArduinoOTA.handle();
+        // Non-blocking: services at most one pending Web UI request per tick.
+        webServer.handleClient();
 
         controller.update();
         BitaxeData data = controller.getData();
