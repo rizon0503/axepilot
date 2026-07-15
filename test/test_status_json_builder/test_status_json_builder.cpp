@@ -15,6 +15,7 @@ static BitaxeData sampleData() {
     d.fanRpm = 4200;
     d.fanSpeedPercent = 0;
     d.isOverheating = false;
+    d.errorPercentage = 1.2f;
     return d;
 }
 
@@ -32,6 +33,7 @@ void test_build_includes_telemetry_fields() {
     TEST_ASSERT_EQUAL(550, doc["frequency"].as<int>());
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 15.2f, doc["power"].as<float>());
     TEST_ASSERT_EQUAL(4200, doc["fanRpm"].as<int>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.2f, doc["errorPercentage"].as<float>());
     TEST_ASSERT_EQUAL_STRING("AUTO", doc["mode"].as<const char*>());
     TEST_ASSERT_TRUE(doc["wifiOk"].as<bool>());
     TEST_ASSERT_FALSE(doc["isOverheating"].as<bool>());

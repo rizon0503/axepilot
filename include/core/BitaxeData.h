@@ -12,6 +12,7 @@ struct BitaxeData {
     int frequency = 0;          // MHz
     float power = 0.0f;         // W
     float vrTemp = 0.0f;        // °C, voltage-regulator temp; 0.0 = unsupported/invalid
+    float errorPercentage = 0.0f; // ASIC hardware error rate, distinct from pool share rejections
     int fanSpeedPercent = 0;
     int fanRpm = 0;
     uint32_t sharesAccepted = 0;
