@@ -6,7 +6,6 @@
 // Mirrors TFT_eSPI's TFT_* macros (RGB565) without depending on the
 // hardware-only TFT_eSPI header, keeping this file natively testable.
 namespace {
-constexpr uint16_t COLOR_BLACK = 0x0000;
 constexpr uint16_t COLOR_RED = 0xF800;
 constexpr uint16_t COLOR_GREEN = 0x07E0;
 constexpr uint16_t COLOR_WHITE = 0xFFFF;
@@ -20,24 +19,19 @@ constexpr uint16_t COLOR_BLUE = 0x001F;
 // duplicates these same four numbers, matching pre-existing behavior.
 constexpr int THROTTLE_X = 0, THROTTLE_Y = 180, THROTTLE_W = 320, THROTTLE_H = 60;
 
-// Sparkline row (#2): reuses the same y-slot the Mode line used to occupy
-// before Volt+Freq were combined into one row to make room. Split into two
-// halves with a small gap between them.
-constexpr int SPARK_Y = 125, SPARK_H = 24;
-constexpr int TEMP_SPARK_X = 10, HASH_SPARK_X = 170, SPARK_W = 140;
+// #87 round 2: the temp/hashrate sparklines (#2/#64) occupied this row.
+// They're replaced outright by the error-rate row here rather than adding a
+// new row and compacting every other row's pitch — that approach (#87
+// round 1) broke the on-screen buttons on the physical device for reasons
+// that weren't root-caused; reusing the existing slot keeps every other
+// row's Y-coordinate, and the throttle button, completely untouched.
+constexpr int ERR_Y = 125;
 
-// #64: a "T"/"H" letter drawn once (in renderMainScreenChrome(), alongside
-// the other static chrome) in the leading few pixels of each sparkline's
-// rect, so the two graphs aren't distinguishable by color alone. The graph
-// line itself is drawn/cleared starting after this reserved margin so the
-// periodic data-driven redraw in renderSparklines() never paints over — or
-// needs to reproduce — the label. Sized generously (Font 4 capital letters
-// run up to ~18px wide on this display) so the graph's own repaint can't
-// clip the letter; verify on hardware after flashing.
-constexpr int SPARK_LABEL_W = 22;
-constexpr int TEMP_GRAPH_X = TEMP_SPARK_X + SPARK_LABEL_W;
-constexpr int HASH_GRAPH_X = HASH_SPARK_X + SPARK_LABEL_W;
-constexpr int GRAPH_W = SPARK_W - SPARK_LABEL_W;
+// Threshold for flagging the ASIC error rate: anything at or below this is
+// considered healthy. The exact colors used aren't load-bearing (this
+// display's color rendering has an unresolved quirk — see #89) — only that
+// the color visibly changes across the threshold.
+constexpr float ERR_RATE_WARN_THRESHOLD = 5.0f;
 } // namespace
 
 UiRenderer::UiRenderer(IDisplay& display) : display(display) {}
@@ -51,66 +45,7 @@ void UiRenderer::drawIfChanged(int x, int y, const char* text, uint16_t color, L
     cache.color = color;
 }
 
-void UiRenderer::drawSparklineLine(int x, int y, int w, int h, const float* values, size_t count, uint16_t color) {
-    if (count < 2) {
-        return; // nothing to connect
-    }
-    float minV = values[0];
-    float maxV = values[0];
-    for (size_t i = 1; i < count; i++) {
-        if (values[i] < minV) minV = values[i];
-        if (values[i] > maxV) maxV = values[i];
-    }
-    float range = maxV - minV;
-
-    auto yFor = [&](float v) -> int {
-        if (range < 0.001f) {
-            return y + h / 2; // flat data: draw a level line instead of dividing by ~0
-        }
-        float normalized = (v - minV) / range; // 0 (min) .. 1 (max)
-        return y + (h - 1) - (int)(normalized * (h - 1));
-    };
-
-    for (size_t i = 0; i + 1 < count; i++) {
-        int x0 = x + (int)((long)i * (w - 1) / (count - 1));
-        int x1 = x + (int)((long)(i + 1) * (w - 1) / (count - 1));
-        display.drawLine(x0, yFor(values[i]), x1, yFor(values[i + 1]), color);
-    }
-}
-
-void UiRenderer::renderSparklines(const float* tempHistory, size_t tempHistoryCount,
-                                   const float* hashHistory, size_t hashHistoryCount) {
-    // Clamp defensively: lastTempSpark_/lastHashSpark_ are fixed
-    // MAX_SPARKLINE_SAMPLES-sized buffers, so an over-large count here
-    // would overflow them via memcpy below. Currently unreachable (the
-    // only caller passes at most TelemetryHistory::CAPACITY == 20), but a
-    // buffer-safety bound isn't something to skip just because it's not
-    // hit today.
-    if (tempHistoryCount > MAX_SPARKLINE_SAMPLES) tempHistoryCount = MAX_SPARKLINE_SAMPLES;
-    if (hashHistoryCount > MAX_SPARKLINE_SAMPLES) hashHistoryCount = MAX_SPARKLINE_SAMPLES;
-
-    bool tempChanged = tempHistoryCount != lastTempSparkCount_ ||
-                        memcmp(tempHistory, lastTempSpark_, tempHistoryCount * sizeof(float)) != 0;
-    if (tempChanged) {
-        display.fillRect(TEMP_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, COLOR_BLACK);
-        drawSparklineLine(TEMP_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, tempHistory, tempHistoryCount, COLOR_GREEN);
-        memcpy(lastTempSpark_, tempHistory, tempHistoryCount * sizeof(float));
-        lastTempSparkCount_ = tempHistoryCount;
-    }
-
-    bool hashChanged = hashHistoryCount != lastHashSparkCount_ ||
-                        memcmp(hashHistory, lastHashSpark_, hashHistoryCount * sizeof(float)) != 0;
-    if (hashChanged) {
-        display.fillRect(HASH_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, COLOR_BLACK);
-        drawSparklineLine(HASH_GRAPH_X, SPARK_Y, GRAPH_W, SPARK_H, hashHistory, hashHistoryCount, COLOR_WHITE);
-        memcpy(lastHashSpark_, hashHistory, hashHistoryCount * sizeof(float));
-        lastHashSparkCount_ = hashHistoryCount;
-    }
-}
-
-void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, bool wifiOk,
-                                  const float* tempHistory, size_t tempHistoryCount,
-                                  const float* hashHistory, size_t hashHistoryCount) {
+void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, bool wifiOk) {
     char buf[64];
 
     snprintf(buf, sizeof(buf), "Temp: %.1f C", data.temperature);
@@ -136,7 +71,11 @@ void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, boo
         drawIfChanged(10, 100, buf, mode == OperationMode::AUTOPILOT ? COLOR_GREEN : COLOR_ORANGE, modeCache_);
     }
 
-    renderSparklines(tempHistory, tempHistoryCount, hashHistory, hashHistoryCount);
+    // #87: ASIC hardware error rate, distinct from pool share rejections —
+    // matters most right after a freq/volt change, since unstable settings
+    // show up here first.
+    snprintf(buf, sizeof(buf), "Err: %.1f%%", data.errorPercentage);
+    drawIfChanged(10, ERR_Y, buf, data.errorPercentage > ERR_RATE_WARN_THRESHOLD ? COLOR_RED : COLOR_GREEN, errCache_);
 
     // In autofanspeed mode AxeOS reports fanspeed=0%, so RPM is the
     // meaningful number; show the percent only when it is set manually.
@@ -153,9 +92,8 @@ void UiRenderer::resetTelemetryCache() {
     hashrateCache_.text[0] = '\0';
     voltFreqCache_.text[0] = '\0';
     modeCache_.text[0] = '\0';
+    errCache_.text[0] = '\0';
     powCache_.text[0] = '\0';
-    lastTempSparkCount_ = 0;
-    lastHashSparkCount_ = 0;
 }
 
 void UiRenderer::renderThrottleButton(ThrottleState state) {
@@ -171,11 +109,6 @@ void UiRenderer::renderMainScreenChrome() {
     renderThrottleButton(ThrottleState::NORMAL);
     display.drawButton(ControlsScreen::TAB_RECT.x, ControlsScreen::TAB_RECT.y,
                         ControlsScreen::TAB_RECT.w, ControlsScreen::TAB_RECT.h, "CTRL", COLOR_BLUE);
-
-    // Sparkline labels (#64): static, so drawn once here rather than on
-    // every renderTelemetry() call like the graphs themselves.
-    display.drawText(TEMP_SPARK_X, SPARK_Y, "T", COLOR_GREEN);
-    display.drawText(HASH_SPARK_X, SPARK_Y, "H", COLOR_WHITE);
 }
 
 void UiRenderer::renderControlsScreen(OperationMode mode) {

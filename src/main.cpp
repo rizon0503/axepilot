@@ -514,9 +514,7 @@ void loop() {
         lastUiRefresh = now;
         MainScreenSnapshot snap = readMainScreenSnapshot();
         OperationMode mode = currentMode.load();
-        uiRenderer.renderTelemetry(snap.data, mode, wifiConnected.load(),
-                                    snap.sparkline.temps, snap.sparkline.count,
-                                    snap.sparkline.hashrates, snap.sparkline.count);
+        uiRenderer.renderTelemetry(snap.data, mode, wifiConnected.load());
     }
 
     // Emergency Throttle Button & Screen Wakeup
