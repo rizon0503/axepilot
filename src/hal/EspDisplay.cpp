@@ -8,6 +8,14 @@ void EspDisplay::init() {
     digitalWrite(21, HIGH); // Turn on backlight
     
     tft.init();
+    // #89: this panel's init sequence (ILI9341_2_DRIVER) leaves colors
+    // fully bit-inverted — every color the code names renders as its RGB565
+    // complement (confirmed on real hardware: RED showed as CYAN, WHITE as
+    // BLACK, GREEN as MAGENTA, YELLOW as BLUE, and each reverse). The
+    // ILI9341 has a dedicated hardware command for exactly this
+    // (INVON/INVOFF, TFT_eSPI's invertDisplay()) rather than needing every
+    // color constant in the codebase redefined to its complement.
+    tft.invertDisplay(true);
     tft.setRotation(1);
     tft.fillScreen(TFT_BLACK);
     
