@@ -12,6 +12,7 @@ std::string StatusJsonBuilder::build(const BitaxeData& data, OperationMode mode,
     doc["power"] = data.power;
     doc["fanSpeedPercent"] = data.fanSpeedPercent;
     doc["fanRpm"] = data.fanRpm;
+    doc["errorPercentage"] = data.errorPercentage;
     doc["mode"] = mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL";
     doc["wifiOk"] = wifiOk;
     doc["isOverheating"] = data.isOverheating;
