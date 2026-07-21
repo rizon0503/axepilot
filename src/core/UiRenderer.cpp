@@ -20,20 +20,11 @@ constexpr uint16_t COLOR_BLUE = 0x001F;
 // duplicates these same four numbers, matching pre-existing behavior.
 constexpr int THROTTLE_X = 0, THROTTLE_Y = 180, THROTTLE_W = 320, THROTTLE_H = 60;
 
-// Main screen row Y-coordinates. #87 compacted the pitch from 30px to 25px
-// (Temp/Hashrate/VoltFreq/Mode) and the sparkline from 24px to 20px tall,
-// to make room for the Err row without moving the throttle button.
-constexpr int TEMP_Y = 8, HASHRATE_Y = 33, VOLTFREQ_Y = 58, MODE_Y = 83, ERR_Y = 130, POW_Y = 156;
-
 // Sparkline row (#2): reuses the same y-slot the Mode line used to occupy
 // before Volt+Freq were combined into one row to make room. Split into two
 // halves with a small gap between them.
-constexpr int SPARK_Y = 106, SPARK_H = 20;
+constexpr int SPARK_Y = 125, SPARK_H = 24;
 constexpr int TEMP_SPARK_X = 10, HASH_SPARK_X = 170, SPARK_W = 140;
-
-// #87: error rate above this is flagged red instead of green — mirrors what
-// AxeOS itself treats as a healthy hardware error rate.
-constexpr float ERR_RATE_WARN_THRESHOLD = 5.0f;
 
 // #64: a "T"/"H" letter drawn once (in renderMainScreenChrome(), alongside
 // the other static chrome) in the leading few pixels of each sparkline's
@@ -123,7 +114,7 @@ void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, boo
     char buf[64];
 
     snprintf(buf, sizeof(buf), "Temp: %.1f C", data.temperature);
-    drawIfChanged(10, TEMP_Y, buf, data.isOverheating ? COLOR_RED : COLOR_GREEN, tempCache_);
+    drawIfChanged(10, 10, buf, data.isOverheating ? COLOR_RED : COLOR_GREEN, tempCache_);
 
     // If hashrate is crazy high (like 86000 GH/s), display it in TH/s to save screen space
     if (data.hashrate > 9999.0f) {
@@ -131,27 +122,21 @@ void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, boo
     } else {
         snprintf(buf, sizeof(buf), "Hashrate: %.1f GH/s", data.hashrate);
     }
-    drawIfChanged(10, HASHRATE_Y, buf, COLOR_WHITE, hashrateCache_);
+    drawIfChanged(10, 40, buf, COLOR_WHITE, hashrateCache_);
 
     // Volt+Freq combined into one row (#2) to make room for the sparkline
     // row below, which used to be the Mode row's slot.
     snprintf(buf, sizeof(buf), "V:%dmV F:%dMHz", data.coreVoltage, data.frequency);
-    drawIfChanged(10, VOLTFREQ_Y, buf, COLOR_YELLOW, voltFreqCache_);
+    drawIfChanged(10, 70, buf, COLOR_YELLOW, voltFreqCache_);
 
     if (!wifiOk) {
-        drawIfChanged(10, MODE_Y, "Wi-Fi reconnecting...", COLOR_RED, modeCache_);
+        drawIfChanged(10, 100, "Wi-Fi reconnecting...", COLOR_RED, modeCache_);
     } else {
         snprintf(buf, sizeof(buf), "Mode: %s", mode == OperationMode::AUTOPILOT ? "AUTO" : "MANUAL");
-        drawIfChanged(10, MODE_Y, buf, mode == OperationMode::AUTOPILOT ? COLOR_GREEN : COLOR_ORANGE, modeCache_);
+        drawIfChanged(10, 100, buf, mode == OperationMode::AUTOPILOT ? COLOR_GREEN : COLOR_ORANGE, modeCache_);
     }
 
     renderSparklines(tempHistory, tempHistoryCount, hashHistory, hashHistoryCount);
-
-    // #87: ASIC hardware error rate, distinct from pool share rejections —
-    // matters most right after a freq/volt change, since unstable settings
-    // show up here first.
-    snprintf(buf, sizeof(buf), "Err: %.1f%%", data.errorPercentage);
-    drawIfChanged(10, ERR_Y, buf, data.errorPercentage > ERR_RATE_WARN_THRESHOLD ? COLOR_RED : COLOR_GREEN, errCache_);
 
     // In autofanspeed mode AxeOS reports fanspeed=0%, so RPM is the
     // meaningful number; show the percent only when it is set manually.
@@ -160,7 +145,7 @@ void UiRenderer::renderTelemetry(const BitaxeData& data, OperationMode mode, boo
     } else {
         snprintf(buf, sizeof(buf), "Pow: %.1fW Fan: %drpm", data.power, data.fanRpm);
     }
-    drawIfChanged(10, POW_Y, buf, COLOR_WHITE, powCache_);
+    drawIfChanged(10, 155, buf, COLOR_WHITE, powCache_);
 }
 
 void UiRenderer::resetTelemetryCache() {
@@ -168,7 +153,6 @@ void UiRenderer::resetTelemetryCache() {
     hashrateCache_.text[0] = '\0';
     voltFreqCache_.text[0] = '\0';
     modeCache_.text[0] = '\0';
-    errCache_.text[0] = '\0';
     powCache_.text[0] = '\0';
     lastTempSparkCount_ = 0;
     lastHashSparkCount_ = 0;

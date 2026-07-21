@@ -88,16 +88,6 @@ void test_status_reports_telemetry() {
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("43.9M") != std::string::npos);
 }
 
-void test_status_shows_error_percentage() {
-    Fixture f;
-    f.data.errorPercentage = 1.1952581f;
-    OperationMode mode = OperationMode::AUTOPILOT;
-
-    f.router.handle("/status", f.data, mode);
-
-    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("1.2%") != std::string::npos);
-}
-
 void test_status_shows_vr_temp_when_reported() {
     Fixture f;
     f.data.vrTemp = 81.3f;
@@ -150,10 +140,7 @@ void test_status_shows_auto_fan_with_rpm_when_percent_is_zero() {
     f.router.handle("/status", f.data, mode);
 
     TEST_ASSERT_TRUE(f.http.lastPostPayload.find("4800") != std::string::npos);
-    // Must show "auto, 4800 rpm", not "0% (4800 rpm)" — scoped to the fan
-    // segment's own format so a coincidental "0%" elsewhere (e.g. a 0.0%
-    // error rate) can't produce a false pass.
-    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("0% (") == std::string::npos);
+    TEST_ASSERT_TRUE(f.http.lastPostPayload.find("0%") == std::string::npos);
 }
 
 void test_esp_reports_system_info() {
@@ -369,7 +356,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_auto_command_switches_mode);
     RUN_TEST(test_manual_command_switches_mode);
     RUN_TEST(test_status_reports_telemetry);
-    RUN_TEST(test_status_shows_error_percentage);
     RUN_TEST(test_status_shows_vr_temp_when_reported);
     RUN_TEST(test_status_omits_vr_temp_when_unsupported);
     RUN_TEST(test_status_shows_pool_info_when_reported);
