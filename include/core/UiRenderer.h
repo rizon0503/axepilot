@@ -91,7 +91,7 @@ private:
         char text[64] = "";
         uint16_t color = 0xFFFF;
     };
-    LineCache tempCache_, hashrateCache_, voltFreqCache_, modeCache_, errCache_, powCache_;
+    LineCache tempCache_, hashrateCache_, voltFreqCache_, modeCache_, powCache_;
 
     // Same idea as LineCache, but for the sparklines: only redraw when the
     // underlying sample values actually changed (TelemetryHistory only gets

@@ -27,7 +27,6 @@ static BitaxeData sampleData() {
     d.power = 15.2f;
     d.fanRpm = 4200;
     d.fanSpeedPercent = 0; // autofan: shown as RPM, not percent
-    d.errorPercentage = 1.2f;
     return d;
 }
 
@@ -41,13 +40,11 @@ void test_render_telemetry_draws_all_fields() {
 
     renderer.renderTelemetry(sampleData(), OperationMode::AUTOPILOT, true, kNoHistory, 0, kNoHistory, 0);
 
-    TEST_ASSERT_EQUAL_STRING("Temp: 60.5 C", display.lastTextAt(10, 8)->text.c_str());
-    TEST_ASSERT_EQUAL_STRING("Hashrate: 950.0 GH/s", display.lastTextAt(10, 33)->text.c_str());
-    TEST_ASSERT_EQUAL_STRING("V:1150mV F:550MHz", display.lastTextAt(10, 58)->text.c_str());
-    TEST_ASSERT_EQUAL_STRING("Mode: AUTO", display.lastTextAt(10, 83)->text.c_str());
-    TEST_ASSERT_EQUAL_STRING("Err: 1.2%", display.lastTextAt(10, 130)->text.c_str());
-    TEST_ASSERT_EQUAL(Colors::GREEN, display.lastTextAt(10, 130)->color);
-    TEST_ASSERT_EQUAL_STRING("Pow: 15.2W Fan: 4200rpm", display.lastTextAt(10, 156)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("Temp: 60.5 C", display.lastTextAt(10, 10)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("Hashrate: 950.0 GH/s", display.lastTextAt(10, 40)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("V:1150mV F:550MHz", display.lastTextAt(10, 70)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("Mode: AUTO", display.lastTextAt(10, 100)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("Pow: 15.2W Fan: 4200rpm", display.lastTextAt(10, 155)->text.c_str());
 }
 
 void test_render_telemetry_shows_overheating_color() {
@@ -58,7 +55,7 @@ void test_render_telemetry_shows_overheating_color() {
 
     renderer.renderTelemetry(data, OperationMode::AUTOPILOT, true, kNoHistory, 0, kNoHistory, 0);
 
-    TEST_ASSERT_EQUAL(Colors::RED, display.lastTextAt(10, 8)->color);
+    TEST_ASSERT_EQUAL(Colors::RED, display.lastTextAt(10, 10)->color);
 }
 
 void test_render_telemetry_uses_th_s_above_9999_ghs() {
@@ -69,7 +66,7 @@ void test_render_telemetry_uses_th_s_above_9999_ghs() {
 
     renderer.renderTelemetry(data, OperationMode::AUTOPILOT, true, kNoHistory, 0, kNoHistory, 0);
 
-    TEST_ASSERT_EQUAL_STRING("Hashrate: 12.3 TH/s", display.lastTextAt(10, 33)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("Hashrate: 12.3 TH/s", display.lastTextAt(10, 40)->text.c_str());
 }
 
 void test_render_telemetry_shows_fan_percent_when_manual() {
@@ -80,30 +77,7 @@ void test_render_telemetry_shows_fan_percent_when_manual() {
 
     renderer.renderTelemetry(data, OperationMode::AUTOPILOT, true, kNoHistory, 0, kNoHistory, 0);
 
-    TEST_ASSERT_EQUAL_STRING("Pow: 15.2W Fan: 80%", display.lastTextAt(10, 156)->text.c_str());
-}
-
-void test_render_telemetry_shows_error_rate_red_above_threshold() {
-    MockDisplay display;
-    UiRenderer renderer(display);
-    BitaxeData data = sampleData();
-    data.errorPercentage = 5.1f;
-
-    renderer.renderTelemetry(data, OperationMode::AUTOPILOT, true, kNoHistory, 0, kNoHistory, 0);
-
-    TEST_ASSERT_EQUAL_STRING("Err: 5.1%", display.lastTextAt(10, 130)->text.c_str());
-    TEST_ASSERT_EQUAL(Colors::RED, display.lastTextAt(10, 130)->color);
-}
-
-void test_render_telemetry_shows_error_rate_green_at_threshold() {
-    MockDisplay display;
-    UiRenderer renderer(display);
-    BitaxeData data = sampleData();
-    data.errorPercentage = 5.0f; // exactly at the threshold: still green
-
-    renderer.renderTelemetry(data, OperationMode::AUTOPILOT, true, kNoHistory, 0, kNoHistory, 0);
-
-    TEST_ASSERT_EQUAL(Colors::GREEN, display.lastTextAt(10, 130)->color);
+    TEST_ASSERT_EQUAL_STRING("Pow: 15.2W Fan: 80%", display.lastTextAt(10, 155)->text.c_str());
 }
 
 void test_render_telemetry_shows_wifi_reconnecting_instead_of_mode() {
@@ -112,8 +86,8 @@ void test_render_telemetry_shows_wifi_reconnecting_instead_of_mode() {
 
     renderer.renderTelemetry(sampleData(), OperationMode::AUTOPILOT, false, kNoHistory, 0, kNoHistory, 0);
 
-    TEST_ASSERT_EQUAL_STRING("Wi-Fi reconnecting...", display.lastTextAt(10, 83)->text.c_str());
-    TEST_ASSERT_EQUAL(Colors::RED, display.lastTextAt(10, 83)->color);
+    TEST_ASSERT_EQUAL_STRING("Wi-Fi reconnecting...", display.lastTextAt(10, 100)->text.c_str());
+    TEST_ASSERT_EQUAL(Colors::RED, display.lastTextAt(10, 100)->color);
 }
 
 void test_render_telemetry_shows_manual_mode_in_orange() {
@@ -122,8 +96,8 @@ void test_render_telemetry_shows_manual_mode_in_orange() {
 
     renderer.renderTelemetry(sampleData(), OperationMode::MANUAL, true, kNoHistory, 0, kNoHistory, 0);
 
-    TEST_ASSERT_EQUAL_STRING("Mode: MANUAL", display.lastTextAt(10, 83)->text.c_str());
-    TEST_ASSERT_EQUAL(Colors::ORANGE, display.lastTextAt(10, 83)->color);
+    TEST_ASSERT_EQUAL_STRING("Mode: MANUAL", display.lastTextAt(10, 100)->text.c_str());
+    TEST_ASSERT_EQUAL(Colors::ORANGE, display.lastTextAt(10, 100)->color);
 }
 
 void test_render_telemetry_skips_unchanged_lines() {
@@ -150,7 +124,7 @@ void test_render_telemetry_redraws_line_that_changed() {
     renderer.renderTelemetry(data, OperationMode::AUTOPILOT, true, kNoHistory, 0, kNoHistory, 0);
 
     TEST_ASSERT_EQUAL(callsAfterFirst + 1, display.textCalls.size());
-    TEST_ASSERT_EQUAL_STRING("Temp: 61.0 C", display.lastTextAt(10, 8)->text.c_str());
+    TEST_ASSERT_EQUAL_STRING("Temp: 61.0 C", display.lastTextAt(10, 10)->text.c_str());
 }
 
 void test_reset_telemetry_cache_forces_full_repaint() {
@@ -279,10 +253,10 @@ void test_render_main_screen_chrome_draws_sparkline_labels() {
 
     // "T"/"H" letters (#64) so the color-only distinction between the two
     // sparklines isn't the only way to tell them apart.
-    TEST_ASSERT_EQUAL_STRING("T", display.lastTextAt(10, 106)->text.c_str());
-    TEST_ASSERT_EQUAL(Colors::GREEN, display.lastTextAt(10, 106)->color);
-    TEST_ASSERT_EQUAL_STRING("H", display.lastTextAt(170, 106)->text.c_str());
-    TEST_ASSERT_EQUAL(Colors::WHITE, display.lastTextAt(170, 106)->color);
+    TEST_ASSERT_EQUAL_STRING("T", display.lastTextAt(10, 125)->text.c_str());
+    TEST_ASSERT_EQUAL(Colors::GREEN, display.lastTextAt(10, 125)->color);
+    TEST_ASSERT_EQUAL_STRING("H", display.lastTextAt(170, 125)->text.c_str());
+    TEST_ASSERT_EQUAL(Colors::WHITE, display.lastTextAt(170, 125)->color);
 }
 
 void test_render_controls_screen_shows_auto_mode() {
@@ -396,8 +370,6 @@ int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_render_telemetry_draws_all_fields);
     RUN_TEST(test_render_telemetry_shows_overheating_color);
-    RUN_TEST(test_render_telemetry_shows_error_rate_red_above_threshold);
-    RUN_TEST(test_render_telemetry_shows_error_rate_green_at_threshold);
     RUN_TEST(test_render_telemetry_uses_th_s_above_9999_ghs);
     RUN_TEST(test_render_telemetry_shows_fan_percent_when_manual);
     RUN_TEST(test_render_telemetry_shows_wifi_reconnecting_instead_of_mode);

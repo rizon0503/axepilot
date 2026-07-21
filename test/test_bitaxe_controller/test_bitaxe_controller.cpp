@@ -119,30 +119,6 @@ void test_controller_defaults_vr_temp_when_absent() {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, controller.getData().vrTemp);
 }
 
-void test_controller_parses_error_percentage() {
-    MockHttpClient mockHttp;
-    MockSystemTime mockTime;
-    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
-
-    mockHttp.getResponse = "{\"temp\": 60.0, \"hashRate\": 1000, \"coreVoltage\": 1100, \"frequency\": 500, \"errorPercentage\": 1.1952581}";
-    mockTime.currentTime = 5000;
-    controller.update();
-
-    TEST_ASSERT_EQUAL_FLOAT(1.1952581f, controller.getData().errorPercentage);
-}
-
-void test_controller_defaults_error_percentage_when_absent() {
-    MockHttpClient mockHttp;
-    MockSystemTime mockTime;
-    BitaxeController controller(mockHttp, mockTime, "192.168.0.128");
-
-    mockHttp.getResponse = "{\"temp\": 60.0, \"hashRate\": 1000, \"coreVoltage\": 1100, \"frequency\": 500}";
-    mockTime.currentTime = 5000;
-    controller.update();
-
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, controller.getData().errorPercentage);
-}
-
 void test_controller_ignores_oversized_response() {
     MockHttpClient mockHttp;
     MockSystemTime mockTime;
@@ -226,8 +202,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_controller_parses_vr_temp);
     RUN_TEST(test_controller_parses_pool_info);
     RUN_TEST(test_controller_defaults_vr_temp_when_absent);
-    RUN_TEST(test_controller_parses_error_percentage);
-    RUN_TEST(test_controller_defaults_error_percentage_when_absent);
     RUN_TEST(test_controller_ignores_oversized_response);
     RUN_TEST(test_controller_preserves_last_known_data_on_http_failure);
     RUN_TEST(test_controller_uses_updated_ip_address);

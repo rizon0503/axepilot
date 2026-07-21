@@ -45,11 +45,11 @@ void CommandRouter::handle(const std::string& msg, const BitaxeData& data, Opera
                 snprintf(fan, sizeof(fan), "auto, %d rpm", data.fanRpm);
             }
             len += snprintf(status + len, sizeof(status) - len,
-                 "\n⛏️ Hashrate: %.1f GH/s\n⚙️ %d MHz / %d mV\n⚡ Power: %.1f W%s\n🌀 Fan: %s\n📈 Shares: ✅%u / ❌%u (%.1f%%)\n🏆 Best diff: %s\n⏱️ Miner uptime: %uh %um\n🤖 Mode: %s",
+                 "\n⛏️ Hashrate: %.1f GH/s\n⚙️ %d MHz / %d mV\n⚡ Power: %.1f W%s\n🌀 Fan: %s\n📈 Shares: ✅%u / ❌%u\n🏆 Best diff: %s\n⏱️ Miner uptime: %uh %um\n🤖 Mode: %s",
                  data.hashrate, data.frequency, data.coreVoltage,
                  data.power, efficiency,
                  fan,
-                 (unsigned)data.sharesAccepted, (unsigned)data.sharesRejected, data.errorPercentage,
+                 (unsigned)data.sharesAccepted, (unsigned)data.sharesRejected,
                  data.bestDiff[0] ? data.bestDiff : "-",
                  (unsigned)(data.uptimeSeconds / 3600), (unsigned)((data.uptimeSeconds % 3600) / 60),
                  (mode == OperationMode::AUTOPILOT ? "AUTOPILOT" : "MANUAL"));
